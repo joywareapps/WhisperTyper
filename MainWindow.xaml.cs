@@ -775,7 +775,7 @@ namespace WhisperTyper
                 : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WhisperTyper", "models");
 
             _modelManager = new ModelManager(dir);
-            _modelManager.ModelStatusChanged += m => Dispatcher.Invoke(() => RefreshModelList());
+            _modelManager.ModelStatusChanged += m => Dispatcher.BeginInvoke(RefreshModelList);
             _modelManager.RefreshStatus(_controller.LoadedModelPath);
 
             ModelCatalogList.ItemsSource = ModelManager.Catalog;

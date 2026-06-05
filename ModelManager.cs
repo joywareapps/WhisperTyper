@@ -84,31 +84,39 @@ namespace WhisperTyper
             model.Progress  = 0;
             ModelStatusChanged?.Invoke(model);
 
-            string url  = BaseUrl + model.FileName;
-            string tmp  = model.LocalPath + ".tmp";
+            string url = BaseUrl + model.FileName;
+            string tmp = model.LocalPath + ".tmp";
 
             try
             {
-                using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+                using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct)
+                                                .ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
 
                 long total = response.Content.Headers.ContentLength ?? -1;
-                await using var src  = await response.Content.ReadAsStreamAsync(ct);
+                await using var src  = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
                 await using var dest = File.Create(tmp);
 
-                var buf = new byte[81920];
-                long downloaded = 0;
+                var  buf            = new byte[81920];
+                long downloaded     = 0;
+                double lastReported = -1;
                 int  read;
 
-                while ((read = await src.ReadAsync(buf, ct)) > 0)
+                while ((read = await src.ReadAsync(buf, ct).ConfigureAwait(false)) > 0)
                 {
-                    await dest.WriteAsync(buf.AsMemory(0, read), ct);
+                    await dest.WriteAsync(buf.AsMemory(0, read), ct).ConfigureAwait(false);
                     downloaded += read;
+
                     if (total > 0)
                     {
                         model.Progress = downloaded * 100.0 / total;
-                        onProgress?.Invoke(model.Progress);
-                        ModelStatusChanged?.Invoke(model);
+                        // Only fire the event when progress moves by ≥1% to avoid flooding the UI.
+                        if (model.Progress - lastReported >= 1.0)
+                        {
+                            lastReported = model.Progress;
+                            onProgress?.Invoke(model.Progress);
+                            ModelStatusChanged?.Invoke(model);
+                        }
                     }
                 }
 
