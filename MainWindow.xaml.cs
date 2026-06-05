@@ -382,14 +382,6 @@ namespace WhisperTyper
             {
                 switch (state)
                 {
-                    case ModelLoadState.Unloaded:
-                        StatusCircle.Fill = _mutedBrush;
-                        StatusBlur.Radius = 0;
-                        TxtStatus.Text = "Unloaded";
-                        TxtSubStatus.Text = "Select a model file to begin";
-                        if (logMessage) LogMessage("Model unloaded.");
-                        break;
-
                     case ModelLoadState.Loading:
                         StatusCircle.Fill = _loadingBrush;
                         StatusBlur.Radius = 8;
@@ -401,13 +393,23 @@ namespace WhisperTyper
                         bool isCpu = _controller.IsLoadedOnCpu;
                         StatusCircle.Fill = isCpu ? _cpuReadyBrush : _gpuReadyBrush;
                         StatusBlur.Radius = 8;
-                        
+
                         string adapterText = _controller.LoadedAdapter;
                         TxtStatus.Text = isCpu ? "Ready (CPU Mode)" : $"Ready ({adapterText})";
-                        
+
                         string hotkeyLabel = (ComboHotkey.SelectedItem as HotkeyOption)?.Label ?? "hotkey";
                         TxtSubStatus.Text = $"Hold {hotkeyLabel} to start typing speech";
                         if (logMessage) LogMessage($"Model loaded successfully on {(isCpu ? "CPU (Reference fallback)" : adapterText)}.");
+                        RefreshModelList();
+                        break;
+
+                    case ModelLoadState.Unloaded:
+                        StatusCircle.Fill = _mutedBrush;
+                        StatusBlur.Radius = 0;
+                        TxtStatus.Text = "Unloaded";
+                        TxtSubStatus.Text = "Select a model file to begin";
+                        if (logMessage) LogMessage("Model unloaded.");
+                        RefreshModelList();
                         break;
 
                     case ModelLoadState.Failed:
