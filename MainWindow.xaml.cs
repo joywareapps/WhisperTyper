@@ -709,6 +709,7 @@ namespace WhisperTyper
 
         private void PeriodSpacing_Changed(object sender, RoutedEventArgs e)
         {
+            if (_controller is null) return;
             _controller.Dictionary.FixPeriodSpacing = ChkPeriodSpacing.IsChecked == true;
         }
 
