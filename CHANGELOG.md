@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.1 — 2026-06-05
+
+### Fixed
+- Filler Word Removal "Enabled" checkbox clipped by scrollbar — header grid used a hardcoded `Width="660"`; replaced with `HorizontalContentAlignment="Stretch"` so it adapts to available width
+- Release notes now pulled from `CHANGELOG.md` instead of auto-generated commit titles
+
+---
+
 ## v0.6.0 — 2026-06-05
 
 ### New
