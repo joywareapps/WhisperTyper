@@ -25,6 +25,7 @@ namespace WhisperTyper
         private readonly SemaphoreSlim _transcriptionLock = new(1, 1);
         private CancellationTokenSource? _partialCts;
         private const int PartialIntervalMs = 4000; // how often to run partial transcription
+        private string _partialTypedText = ""; // accumulates filtered text already typed mid-recording
 
         private ModelLoadState _loadState = ModelLoadState.Unloaded;
         private RecordingState _recordingState = RecordingState.Idle;
@@ -164,6 +165,7 @@ namespace WhisperTyper
                         _captureBuffer.AddRange(new ArraySegment<byte>(e.Buffer, 0, e.BytesRecorded));
                 };
 
+                _partialTypedText = "";
                 _recordingStarted = DateTimeOffset.Now;
                 _wasapiCapture.StartRecording();
                 SetState(RecordingState.Recording, "Recording... Speak now");
@@ -220,9 +222,14 @@ namespace WhisperTyper
                         Language   = LoadedAdapter
                     });
 
+                    // Only type what wasn't already streamed by partial transcriptions.
+                    string toType = StripTypedPrefix(transcription, _partialTypedText);
+                    _partialTypedText = "";
+
                     string snippet = transcription.Length > 40 ? transcription[..37] + "..." : transcription;
                     SetState(RecordingState.Typing, $"Typing: \"{snippet}\"");
-                    TranscriptionCompleted?.Invoke(transcription);
+                    if (!string.IsNullOrWhiteSpace(toType))
+                        TranscriptionCompleted?.Invoke(toType);
                     SetState(RecordingState.Idle, $"Done: \"{snippet}\"");
                 }
                 else
@@ -273,6 +280,51 @@ namespace WhisperTyper
             }
         }
 
+        // Returns the portion of fullText that comes after the words already covered by typedText,
+        // using word-level comparison so punctuation differences between Whisper runs don't cause repeats.
+        private static string StripTypedPrefix(string fullText, string typedText)
+        {
+            if (string.IsNullOrEmpty(typedText)) return fullText;
+
+            // Fast path: exact prefix match.
+            if (fullText.StartsWith(typedText, StringComparison.Ordinal))
+                return fullText[typedText.Length..].TrimStart();
+
+            // Fuzzy path: compare word-by-word, ignoring punctuation attached to words.
+            var typedWords = typedText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var fullWords  = fullText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            int matched = 0;
+            for (int i = 0; i < Math.Min(typedWords.Length, fullWords.Length); i++)
+            {
+                string tw = typedWords[i].Trim('.', '!', '?', ',', ';', ':');
+                string fw = fullWords[i].Trim('.', '!', '?', ',', ';', ':');
+                if (string.Equals(tw, fw, StringComparison.OrdinalIgnoreCase))
+                    matched = i + 1;
+                else
+                    break;
+            }
+
+            return matched == 0
+                ? fullText
+                : string.Join(" ", fullWords.Skip(matched)).TrimStart();
+        }
+
+        // Returns the index just after the last sentence-ending punctuation (. ! ?) in text, or 0 if none.
+        private static int FindLastSentenceBoundary(string text)
+        {
+            for (int i = text.Length - 1; i >= 0; i--)
+            {
+                char c = text[i];
+                if (c == '.' || c == '!' || c == '?')
+                {
+                    if (i == text.Length - 1 || text[i + 1] == ' ')
+                        return i + 1;
+                }
+            }
+            return 0;
+        }
+
         private async Task RunPartialTranscriptionLoop(CancellationToken ct)
         {
             while (!ct.IsCancellationRequested)
@@ -290,11 +342,22 @@ namespace WhisperTyper
                     if (snapshot.Length == 0) continue;
                     DiagnosticLog?.Invoke("[Partial] Running mid-recording transcription...");
                     string partial = RunFullTranscription(snapshot);
-                    if (!string.IsNullOrWhiteSpace(partial))
-                    {
-                        DiagnosticLog?.Invoke($"[Partial] Preview: \"{partial}\"");
-                        PartialTranscriptionReady?.Invoke(partial);
-                    }
+                    partial = FillerWordFilter.Apply(partial);
+                    partial = Dictionary.Apply(partial);
+
+                    if (string.IsNullOrWhiteSpace(partial)) continue;
+
+                    // Only stream up to the last complete sentence so we don't cut mid-word.
+                    int boundary = FindLastSentenceBoundary(partial);
+                    if (boundary <= _partialTypedText.Length) continue;
+
+                    string stable = partial[..boundary];
+                    string newText = stable[_partialTypedText.Length..].TrimStart();
+                    if (string.IsNullOrWhiteSpace(newText)) continue;
+
+                    _partialTypedText = stable;
+                    DiagnosticLog?.Invoke($"[Partial] Streaming: \"{newText}\"");
+                    PartialTranscriptionReady?.Invoke(newText);
                 }
                 finally { _transcriptionLock.Release(); }
             }

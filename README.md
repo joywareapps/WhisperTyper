@@ -9,10 +9,15 @@ WhisperTyper runs [OpenAI Whisper](https://github.com/openai/whisper) entirely o
 ## Features
 
 - **Hold-to-record** — hold a configurable hotkey while speaking, release to transcribe
+- **Sentence streaming** — complete sentences are typed at the cursor every few seconds mid-recording, so you don't wait until the end
 - **Types at cursor** — output appears wherever your cursor is, in any app
 - **GPU-accelerated** — runs on NVIDIA, AMD, and Intel GPUs via DirectCompute; falls back to CPU automatically
 - **Local & private** — no internet connection required after setup
 - **GGML model support** — works with any Whisper GGML `.bin` model (base, small, medium, large, turbo)
+- **Model manager** — browse, download, and switch models from within the app
+- **History log** — searchable record of past transcriptions; copy or re-type any entry
+- **Custom dictionary** — fix words Whisper consistently mishears (e.g. "eye phone" → "iPhone")
+- **Filler word removal** — automatically strip "um", "uh", "like", etc. before typing
 - **Modern dark UI** — system tray, minimize to background, settings persist between sessions
 
 ## Requirements
@@ -20,19 +25,17 @@ WhisperTyper runs [OpenAI Whisper](https://github.com/openai/whisper) entirely o
 - Windows 10 or 11 (x64)
 - [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) (or SDK to build from source)
 - A GPU with DirectCompute support (Direct3D 11) — or CPU fallback
-- A Whisper GGML model file (`.bin`) — see [Downloading a model](#downloading-a-model) below
+- A Whisper GGML model file (`.bin`) — download one from the built-in Model Manager or see below
 
 ## Downloading a model
 
-WhisperTyper does not bundle a model. Download one from [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp):
+WhisperTyper does not bundle a model. Use the built-in **Models** panel to download one, or grab it manually from [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp):
 
 | Model | Size | Notes |
 |-------|------|-------|
 | `ggml-base.bin` | 142 MB | Fast, decent accuracy |
 | `ggml-small.bin` | 466 MB | Good balance |
 | `ggml-large-v3-turbo.bin` | 1.5 GB | Best accuracy, recommended |
-
-Place the `.bin` file anywhere on your machine. WhisperTyper will scan `C:\Tools\whisper\models` automatically, or you can browse for any path.
 
 ## Building from source
 
@@ -47,13 +50,13 @@ The native `Whisper.dll` (DirectCompute inference engine) is downloaded automati
 ## Usage
 
 1. Launch WhisperTyper
-2. Select your model file, GPU, and microphone from the dropdowns
+2. Select your model file (or download one from the Models panel), GPU, and microphone
 3. Wait for the status indicator to turn green ("Ready")
 4. Click into any text field in any application
 5. Hold your hotkey (default: **Caps Lock**), speak, then release
-6. The transcribed text appears at your cursor
+6. Sentences appear at your cursor as you speak; the final remainder is typed on release
 
-WhisperTyper minimizes to the system tray — it stays active in the background while you work.
+WhisperTyper minimizes to the system tray and stays active in the background.
 
 ## Hotkey options
 
@@ -68,8 +71,10 @@ WhisperTyper minimizes to the system tray — it stays active in the background 
 ## How it works
 
 - Audio is captured via [WASAPI](https://learn.microsoft.com/en-us/windows/win32/coreaudio/wasapi) (NAudio) while the hotkey is held
-- On release, the audio is batch-transcribed by Whisper running on the GPU via DirectCompute
-- The result is injected at the cursor using the Windows `SendInput` API with `KEYEVENTF_UNICODE` — works in any application, supports full Unicode
+- Every 4 seconds, a snapshot of the audio is transcribed and any new complete sentences are typed immediately at the cursor
+- On release, the remaining audio is transcribed and the untyped remainder is injected
+- Text is injected using the Windows `SendInput` API with `KEYEVENTF_UNICODE` — works in any application, supports full Unicode
+- Filler words and custom dictionary replacements are applied before any text reaches the cursor
 
 ## Dependencies
 

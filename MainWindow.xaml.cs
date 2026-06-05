@@ -65,6 +65,7 @@ namespace WhisperTyper
             {
                 string preview = text.Length > 60 ? text[..57] + "..." : text;
                 TxtSubStatus.Text = $"🎙 \"{preview}\"";
+                KeyboardSimulator.SimulateTypeString(text);
             });
 
             // Set up events from keyboard hook
@@ -712,7 +713,7 @@ namespace WhisperTyper
         {
             string filter = TxtHistorySearch.Text.Trim().ToLowerInvariant();
             var source = string.IsNullOrEmpty(filter)
-                ? _controller.History.Entries
+                ? _controller.History.Entries.ToList()
                 : _controller.History.Entries.Where(e => e.Text.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
             HistoryList.ItemsSource = source;
         }

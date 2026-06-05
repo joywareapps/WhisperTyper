@@ -11,19 +11,19 @@
 
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
-3. [Current Features (v1.0)](#3-current-features-v10)
+3. [Current Features (v0.6.0)](#3-current-features-v060)
    - 3.1 [Global Hotkey Capture](#31-global-hotkey-capture)
    - 3.2 [Audio Capture](#32-audio-capture)
    - 3.3 [Whisper Transcription Engine](#33-whisper-transcription-engine)
-   - 3.4 [Keyboard Output Injection](#34-keyboard-output-injection)
-   - 3.5 [Model Loading](#35-model-loading)
-   - 3.6 [Settings Persistence](#36-settings-persistence)
-   - 3.7 [User Interface](#37-user-interface)
+   - 3.4 [Sentence Streaming](#34-sentence-streaming)
+   - 3.5 [Keyboard Output Injection](#35-keyboard-output-injection)
+   - 3.6 [Model Loading & Manager](#36-model-loading--manager)
+   - 3.7 [History Log](#37-history-log)
+   - 3.8 [Custom Dictionary](#38-custom-dictionary)
+   - 3.9 [Filler Word Removal](#39-filler-word-removal)
+   - 3.10 [Settings Persistence](#310-settings-persistence)
+   - 3.11 [User Interface](#311-user-interface)
 4. [Planned Features](#4-planned-features)
-   - 4.1 [History Log](#41-history-log)
-   - 4.2 [Model Manager](#42-model-manager)
-   - 4.3 [Custom Dictionary](#43-custom-dictionary)
-   - 4.4 [Filler Word Removal](#44-filler-word-removal)
 5. [Data & File Locations](#5-data--file-locations)
 6. [Dependencies](#6-dependencies)
 7. [Known Limitations](#7-known-limitations)
@@ -37,8 +37,9 @@ WhisperTyper is a Windows system-tray application that converts speech to text u
 **Core user flow:**
 1. User holds a configurable hotkey
 2. Application records audio via WASAPI microphone capture
-3. On hotkey release, audio is batch-transcribed by Whisper running on GPU (or CPU fallback)
-4. Transcribed text is injected at the active cursor using `SendInput`
+3. Every 4 seconds mid-recording, complete sentences are transcribed and typed at the cursor as they are recognised
+4. On hotkey release, any remaining untranscribed audio is batch-transcribed and the remainder is typed
+5. Full transcription is saved to the history log
 
 No audio, text, or telemetry leaves the machine at any point.
 
@@ -53,38 +54,46 @@ No audio, text, or telemetry leaves the machine at any point.
 └────────────┬───────────────────────┬────────────────────┘
              │                       │
              ▼                       ▼
-┌────────────────────┐   ┌──────────────────────────────┐
-│  GlobalKeyboardHook│   │       WhisperController       │
-│  WH_KEYBOARD_LL    │   │                              │
-│  SetWindowsHookEx  │   │  ┌──────────────────────┐   │
-│                    │   │  │  NAudio WasapiCapture  │   │
-│  HotkeyStateChanged│   │  │  byte[] capture buffer │   │
-│  (true/false)      │   │  └──────────┬───────────┘   │
-└────────────────────┘   │             │ WAV bytes       │
-                         │  ┌──────────▼───────────┐   │
-                         │  │  WhisperNet / Whisper  │   │
-                         │  │  iModel · Context      │   │
-                         │  │  runFull(iAudioBuffer) │   │
-                         │  └──────────┬───────────┘   │
-                         │             │ transcription   │
-                         └─────────────┼────────────────┘
+┌────────────────────┐   ┌──────────────────────────────────────┐
+│  GlobalKeyboardHook│   │          WhisperController            │
+│  WH_KEYBOARD_LL    │   │                                      │
+│  SetWindowsHookEx  │   │  ┌──────────────────────┐           │
+│                    │   │  │  NAudio WasapiCapture  │           │
+│  HotkeyStateChanged│   │  │  byte[] capture buffer │           │
+│  (true/false)      │   │  └──────────┬───────────┘           │
+└────────────────────┘   │             │ WAV bytes               │
+                         │  ┌──────────▼───────────┐           │
+                         │  │  WhisperNet / Whisper  │           │
+                         │  │  iModel · Context      │           │
+                         │  │  runFull(iAudioBuffer) │           │
+                         │  └──────────┬───────────┘           │
+                         │             │ transcription           │
+                         │  ┌──────────▼───────────┐           │
+                         │  │   FillerWordFilter     │           │
+                         │  │   DictionaryService    │           │
+                         │  └──────────┬───────────┘           │
+                         └─────────────┼──────────────────────┘
                                        │
-                                       ▼
-                         ┌─────────────────────────┐
-                         │    KeyboardSimulator      │
-                         │  SendInput KEYEVENTF_    │
-                         │  UNICODE per character    │
-                         └─────────────────────────┘
+                         ┌─────────────▼──────────────┐
+                         │  HistoryService              │
+                         │  %AppData%\history.json      │
+                         └─────────────────────────────┘
+                                       │
+                         ┌─────────────▼──────────────┐
+                         │    KeyboardSimulator         │
+                         │  SendInput KEYEVENTF_UNICODE │
+                         └─────────────────────────────┘
 ```
 
 **Thread model:**
 - UI thread: WPF message pump, hook callback, state updates via `Dispatcher.Invoke`
-- Background Task: `WhisperController.StopRecordingAsync` → `RunFullTranscription` runs on `Task.Run` to avoid blocking UI during transcription
+- Background Task: `WhisperController.StopRecordingAsync` → `RunFullTranscription` runs on `Task.Run`
+- Partial transcription loop: fires every 4 seconds on a background task; guarded by `SemaphoreSlim(1,1)` against the final transcription
 - WASAPI callback thread: `DataAvailable` writes to `_captureBuffer` under lock
 
 ---
 
-## 3. Current Features (v1.0)
+## 3. Current Features (v0.6.0)
 
 ### 3.1 Global Hotkey Capture
 
@@ -96,7 +105,7 @@ No audio, text, or telemetry leaves the machine at any point.
 - Optionally swallows the hotkey event (returns `(IntPtr)1` instead of calling `CallNextHookEx`) to prevent side effects — enabled by default for Caps Lock and Left Alt.
 - Default hotkey: **Caps Lock** (virtual key code `0x14`).
 - Available hotkeys: Caps Lock (`0x14`), Scroll Lock (`0x91`), Left Alt (`0xA4`), Left Ctrl (`0xA2`), Ctrl+Win (`0x5B` + modifier `0x11`), F9 (`0x78`), F10 (`0x79`).
-- Combo hotkeys specify a primary key and an optional modifier virtual key code (`ModifierVirtualCode`). The modifier is tracked generically — `VK_CONTROL (0x11)` matches both Left and Right Ctrl; same pattern applies to Shift (`0x10`) and Alt (`0x12`). Releasing either key in a combo fires the stop.
+- Combo hotkeys specify a primary key and an optional modifier virtual key code (`ModifierVirtualCode`). The modifier is tracked generically — `VK_CONTROL (0x11)` matches both Left and Right Ctrl. Releasing either key in a combo fires the stop.
 
 **Constraint:** The hook must be installed from a thread with a running message pump. In WPF this is the UI thread; the hook is installed in `MainWindow` constructor.
 
@@ -107,10 +116,10 @@ No audio, text, or telemetry leaves the machine at any point.
 - Uses **NAudio 2.2.1** `WasapiCapture` in shared mode.
 - Device is selected by the Windows MMDevice endpoint ID string (obtained from `iMediaFoundation.listCaptureDevices()` via WhisperNet, matched to NAudio via `MMDeviceEnumerator.GetDevice(endpoint)`).
 - Captured audio bytes are accumulated in a `List<byte>` under a lock from the `DataAvailable` callback. No silence detection or VAD — captures continuously while the hotkey is held.
-- On `StopRecordingAsync`: capture stops, the raw bytes plus a WAV file header are written into a `MemoryStream` using `NAudio.Wave.WaveFileWriter`. The WAV is in the device's native format (typically 32-bit float, 48 kHz, stereo or mono depending on device).
-- The WAV bytes are then passed to `RunFullTranscription`.
+- On `StopRecordingAsync`: capture stops, the raw bytes plus a WAV file header are written into a `MemoryStream` using `NAudio.Wave.WaveFileWriter`. The WAV is in the device's native format (typically 32-bit float, 48 kHz, stereo or mono).
+- `GetWavSnapshot()` produces a WAV from the live buffer without stopping capture, used by the partial transcription loop.
 
-**Why WASAPI instead of WhisperNet's `runCapture`:** WhisperNet's `runCapture` relies on VAD silence detection to trigger transcription. USB audio devices with high noise floors never produce a detectable silence period, causing `onNewSegment` to never fire. WASAPI raw capture bypasses VAD entirely.
+**Why WASAPI instead of WhisperNet's `runCapture`:** WhisperNet's `runCapture` relies on VAD silence detection. USB audio devices with high noise floors never produce a detectable silence period, causing `onNewSegment` to never fire. WASAPI raw capture bypasses VAD entirely.
 
 ### 3.3 Whisper Transcription Engine
 
@@ -125,39 +134,122 @@ No audio, text, or telemetry leaves the machine at any point.
 
 **Transcription:**
 - `RunFullTranscription` writes the WAV byte array to a temporary file in `%TEMP%` (`wt_{guid}.wav`).
-- Loads the temp file as `iAudioBuffer` via `iMediaFoundation.loadAudioFile(path, stereo: false)`. Media Foundation handles sample rate and format conversion internally (device-native → 16 kHz mono float32 that Whisper requires).
+- Loads the temp file as `iAudioBuffer` via `iMediaFoundation.loadAudioFile(path, stereo: false)`. Media Foundation handles sample rate and format conversion internally (device-native → 16 kHz mono float32).
 - Calls `context.runFull(buffer, callbacks)` — synchronous batch transcription.
-- Result is read from `context.results(eResultFlags.None).segments` after `runFull` returns; falls back to text accumulated by `MyCallbacks.onNewSegment` if `results` is empty.
+- Result is read from `context.results(eResultFlags.None).segments`; falls back to text accumulated by `MyCallbacks.onNewSegment` if `results` is empty.
 - Temp file is deleted in a `finally` block.
+
+**Post-processing pipeline (applied after every transcription, partial and final):**
+1. `FillerWordFilter.Apply` — removes filler words
+2. `DictionaryService.Apply` — applies custom word replacements
 
 **GPU support:** NVIDIA, AMD, and Intel GPUs via DirectCompute (Direct3D 11). The native `Whisper.dll` is bundled automatically by the WhisperNet NuGet package.
 
-**Supported models:** Any GGML `.bin` model compatible with Whisper.cpp / Const-me's implementation (base, small, medium, large-v2, large-v3, large-v3-turbo).
+### 3.4 Sentence Streaming
 
-### 3.4 Keyboard Output Injection
+**File:** `WhisperController.cs` — `RunPartialTranscriptionLoop`, `FindLastSentenceBoundary`, `StripTypedPrefix`
+
+While the hotkey is held, a background loop fires every 4 seconds to transcribe the accumulated audio and stream complete sentences to the cursor, giving the user immediate feedback without waiting for the full recording to end.
+
+**Algorithm:**
+1. Every `PartialIntervalMs` (4000 ms), take a WAV snapshot of the live capture buffer.
+2. Run full transcription on the snapshot and apply filler + dictionary filters.
+3. Find the last sentence boundary (`.` `!` `?`) in the result — only type up to that point to avoid cutting mid-word during active speech.
+4. Compute the new suffix since `_partialTypedText` (what was already typed in previous cycles).
+5. Fire `PartialTranscriptionReady` with the new suffix only; update `_partialTypedText`.
+
+**Deduplication on final transcription:**
+- `StripTypedPrefix` compares the final transcription against `_partialTypedText` to find the already-typed prefix.
+- Uses word-level fuzzy matching (strips trailing punctuation per word before comparing) to tolerate Whisper's non-determinism between partial and final runs — e.g. "remove." in a partial matching "remove" in the final.
+- Only the untyped remainder is fired via `TranscriptionCompleted`.
+- `_partialTypedText` is reset at the start of each new recording.
+
+**Thread safety:** The partial loop and the final transcription both acquire `_transcriptionLock (SemaphoreSlim(1,1))` before calling into Whisper, preventing concurrent use of the shared `Context`.
+
+### 3.5 Keyboard Output Injection
 
 **File:** `KeyboardSimulator.cs`
 
 - Uses Win32 `SendInput` with `KEYEVENTF_UNICODE` flag.
 - For each character in the transcription string, generates a key-down + key-up `INPUT` struct with `wScan` set to the UTF-16 code unit. All inputs are submitted in a single `SendInput` call.
 - Supports full Unicode including non-ASCII characters, punctuation, and multi-language scripts.
-- Output goes to whatever window had focus at the moment of the `SendInput` call (the focused window at key release time, since transcription runs asynchronously on a background task before typing begins).
+- Called for both partial (streaming) and final transcription output.
 
-**Limitation:** Surrogate pairs (characters above U+FFFF) are not explicitly handled — each `char` in the C# string is sent as-is. This is correct for the BMP range but may produce incorrect output for emoji or rare Unicode characters beyond U+FFFF.
+**Limitation:** Surrogate pairs (characters above U+FFFF) are not explicitly handled — each `char` in the C# string is sent as-is. Correct for the BMP range; may produce incorrect output for emoji or rare Unicode beyond U+FFFF.
 
-### 3.5 Model Loading
+### 3.6 Model Loading & Manager
 
-**File:** `MainWindow.xaml.cs` — `ScanForModels`, `TriggerEagerModelLoad`
+**File:** `MainWindow.xaml.cs` — `ScanForModels`, `TriggerEagerModelLoad`; Model Manager panel
 
-- On startup, scans these directories for `*ggml*.bin` files:
-  - `C:\Tools\whisper\models`
-  - `C:\Program Files\Audacity\openvino-models`
-- Found models are populated into `ComboModelPath` (editable combo box).
-- User can also browse for any `.bin` file via a file open dialog.
-- Model is loaded automatically when a new item is selected in `ComboModelPath` (`SelectionChanged` event), or when the Reload button is clicked.
-- Model load triggers `WhisperController.LoadModelAsync` on a background `Task.Run`.
+**Auto-scan directories:**
+- `C:\Tools\whisper\models`
+- `C:\Program Files\Audacity\openvino-models`
+- `%AppData%\WhisperTyper\models\` (downloaded models)
 
-### 3.6 Settings Persistence
+**Model Manager panel:**
+- Lists a hardcoded catalog of standard GGML models with size, accuracy tier, and status (`Not downloaded` / `Downloaded` / `Loaded`).
+- **Download** button: async `HttpClient` download with progress bar; file saved to the configurable models directory. Cancellable via `CancellationTokenSource`.
+- **Load** button: triggers `WhisperController.LoadModelAsync` for downloaded models.
+- **Delete** button: removes `.bin` file from disk with confirmation (not available for currently loaded model).
+
+**Catalog source:** `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}`
+
+| Model | Size | Notes |
+|---|---|---|
+| `ggml-tiny.bin` | 75 MB | Development/testing |
+| `ggml-base.bin` | 142 MB | Good for general use |
+| `ggml-small.bin` | 466 MB | Good balance |
+| `ggml-medium.bin` | 1.5 GB | Very good accuracy |
+| `ggml-large-v3.bin` | 3.1 GB | Excellent accuracy |
+| `ggml-large-v3-turbo.bin` | 1.5 GB | **Recommended** |
+
+### 3.7 History Log
+
+**File:** `HistoryService.cs`, `MainWindow.xaml.cs`
+
+Persistent searchable record of all past transcriptions.
+
+**Data model per entry:** `Id` (Guid), `Timestamp` (DateTimeOffset), `Text` (string), `ModelName`, `DurationMs`, `Language`.
+
+**Storage:** `%AppData%\WhisperTyper\history.json` — JSON array, newest first, max 500 entries (oldest pruned).
+
+**UI (History panel):**
+- Scrollable list of entries showing timestamp and text preview.
+- Per-entry actions: **Copy to clipboard**, **Re-type at cursor** (`KeyboardSimulator.SimulateTypeString`), **Delete**.
+- Search box filters entries by text content (client-side).
+- "Clear all history" button with confirmation dialog.
+- `HistoryList.ItemsSource` is always assigned a new list snapshot (`.ToList()`) on each refresh to avoid WPF ItemContainerGenerator desync with a live `List<T>`.
+
+### 3.8 Custom Dictionary
+
+**File:** `DictionaryService.cs`
+
+Post-processing step that replaces words or phrases Whisper consistently mishears.
+
+**Behaviour:**
+- Each entry is a (trigger, replacement) pair; matching is case-insensitive at word boundaries (`\b` regex).
+- Replacement preserves the original casing style (ALL CAPS → uppercased, Title Case → title-cased, otherwise as-is).
+- Regex patterns compiled once on load; recompiled when the dictionary changes.
+
+**Storage:** `%AppData%\WhisperTyper\dictionary.json` — JSON array of `{ "trigger", "replacement" }`.
+
+**UI (Dictionary panel):** Editable data grid with Trigger and Replacement columns; Add / Delete row buttons; changes saved immediately.
+
+### 3.9 Filler Word Removal
+
+**File:** `FillerWordFilter.cs`
+
+Strips common spoken filler words from transcription output before text is typed.
+
+**Default list:** `um, uh, er, ah, like, you know, I mean, sort of, kind of, basically, literally, actually, so, well, right, okay, yeah`
+
+**Behaviour:** Case-insensitive word-boundary matching; post-removal cleanup of double spaces and dangling punctuation. Master enable/disable toggle. Fully user-editable list with "Reset to defaults".
+
+**Applied first** in the post-processing pipeline, before `DictionaryService`.
+
+**Storage:** `FillerWords` (string array) and `FillerWordRemovalEnabled` (bool) in `settings.json`.
+
+### 3.10 Settings Persistence
 
 **File:** `MainWindow.xaml.cs` — `SaveSettings`, `LoadSettings`
 
@@ -169,16 +261,19 @@ No audio, text, or telemetry leaves the machine at any point.
 |---|---|---|
 | `ModelPath` | string | Full path to the last loaded `.bin` model |
 | `GpuAdapter` | string | Display name of the selected GPU adapter |
-| `Language` | string | Display name of the selected language (e.g. `"English"`, `"Auto-Detect"`) |
-| `HotkeyIndex` | int | Index into the hardcoded `HotkeyOption` list in `ComboHotkey` (0=Caps Lock, 1=Scroll Lock, 2=Left Alt, 3=Left Ctrl, 4=Ctrl+Win, 5=F9, 6=F10) |
+| `Language` | string | Display name of the selected language |
+| `HotkeyIndex` | int | Index into the `HotkeyOption` list (0=Caps Lock … 6=F10) |
+| `FillerWords` | string[] | Current filler word list |
+| `FillerWordRemovalEnabled` | bool | Master toggle for filler word removal |
+| `ModelsDirectory` | string | Directory for downloaded models |
 
 Settings are loaded on `MainWindow.Loaded` and saved on `MainWindow.Closed`.
 
-### 3.7 User Interface
+### 3.11 User Interface
 
 **File:** `MainWindow.xaml`, `MainWindow.xaml.cs`
 
-**Window:** Dark-themed WPF window, non-resizable.
+**Window:** Dark-themed WPF window (`#0E0B16` background), non-resizable. App icon shown in taskbar, title bar, and system tray (`App.ico` — 6-size ICO with 16/32/48/64/128/256 px BMP frames).
 
 **Status indicator:** Filled ellipse with animated outer ring. Colors:
 - Grey — model unloaded
@@ -186,219 +281,38 @@ Settings are loaded on `MainWindow.Loaded` and saved on `MainWindow.Closed`.
 - Green (emerald) — ready, GPU mode
 - Blue — ready, CPU mode
 - Red + pulsing ring — recording
-- Cyan — transcribing
+- Cyan — transcribing / typing
 
-**Controls:**
+**Sub-status line:** Shows partial transcription preview (`🎙 "..."`) while recording.
 
-| Control | Behavior |
+**Panels (tab-switched):**
+
+| Panel | Contents |
 |---|---|
-| `ComboModelPath` | Editable combo, auto-populated from scan, triggers model load on selection change |
-| Browse button | Opens `OpenFileDialog` filtered to `*.bin`, adds to combo and loads |
-| Reload button | Re-triggers model load with current combo text |
-| `ComboGpu` | Lists DirectCompute adapters from `Library.listGraphicAdapters()` |
-| `ComboLanguage` | Lists all `eLanguage` enum values plus "Auto-Detect" (index 0 = `(eLanguage)0`) |
-| `ComboHotkey` | Hardcoded list of 6 hotkey options |
-| `TxtHistory` | Append-only `TextBox` showing timestamped log entries |
-| Clear History button | Clears `TxtHistory` |
-| Minimize button | Hides window, shows tray balloon |
+| Main | Model path, GPU, microphone, language, hotkey selectors; status indicator |
+| History | Scrollable transcription history with search, copy, re-type, delete |
+| Dictionary | Editable trigger/replacement grid |
+| Filler Words | Toggle + chip list of filler words |
+| Models | Model catalog with download/load/delete actions |
+| Diagnostics | Append-only timestamped log of all internal events |
 
 **System tray:**
 - Icon shown at all times via `System.Windows.Forms.NotifyIcon`.
-- Double-click or "Open Settings" context menu item restores window.
-- "Exit" context menu item closes the application.
-- Balloon tip shown on minimize: "The app is running in the background."
-
-**Diagnostic log:** All events (hotkey press/release, capture start, transcription progress, results) are appended to `TxtHistory` with `HH:mm:ss` timestamps.
+- Double-click or "Open Settings" restores window; "Exit" closes the app.
+- Balloon tip shown on minimize.
 
 ---
 
 ## 4. Planned Features
 
----
+No features currently planned. Candidates for future work:
 
-### 4.1 History Log
-
-**Purpose:** Persistent searchable record of all past transcriptions, allowing users to review, copy, or re-type previous results.
-
-**Scope:** Session history visible within the app, persisted to disk across restarts.
-
-#### Data Model
-
-Each history entry stores:
-
-| Field | Type | Notes |
-|---|---|---|
-| `Id` | `Guid` | Unique identifier |
-| `Timestamp` | `DateTimeOffset` | UTC time of transcription completion |
-| `Text` | `string` | Raw transcription text (after any post-processing) |
-| `ModelName` | `string` | Filename of the model used (e.g. `ggml-large-v3-turbo.bin`) |
-| `DurationMs` | `int` | Audio recording duration in milliseconds |
-| `Language` | `string` | Language setting at time of recording |
-
-#### Storage
-
-- File: `%AppData%\WhisperTyper\history.json`
-- Format: JSON array of history entries, newest first.
-- Maximum entries: 500 (oldest entries pruned when limit is exceeded).
-- Entries are appended on each successful transcription; file is rewritten in full on each save.
-
-#### UI
-
-- New tab or collapsible panel in `MainWindow`: **History**
-- Displays a scrollable list of entries, each showing: timestamp, first 80 characters of text, model name.
-- Clicking an entry shows the full text in a detail view.
-- Per-entry actions: **Copy to clipboard**, **Re-type at cursor** (re-runs `KeyboardSimulator.SimulateTypeString`), **Delete**.
-- Search box: filters displayed entries by text content (client-side, no indexing required at this scale).
-- "Clear all history" button with confirmation dialog.
-
-#### Implementation Notes
-
-- History service is a standalone `HistoryService` class, injected into `WhisperController` or wired via event in `MainWindow`.
-- `WhisperController.TranscriptionCompleted` event carries the text; `MainWindow` calls `HistoryService.Add(entry)` and triggers UI refresh.
-- No database dependency — JSON file is sufficient for ≤500 entries.
-
----
-
-### 4.2 Model Manager
-
-**Purpose:** Allow users to discover, download, and switch between GGML models from within the app, without manually navigating Hugging Face or file systems.
-
-**Scope:** A dedicated panel listing known models with their size, accuracy tier, and download/load status.
-
-#### Known Model Catalog
-
-The app ships with a hardcoded catalog of the standard Whisper GGML model variants:
-
-| Model | Size | Speed | Accuracy | Notes |
-|---|---|---|---|---|
-| `ggml-tiny.bin` | 75 MB | Very fast | Low | Development/testing |
-| `ggml-tiny.en.bin` | 75 MB | Very fast | Low | English-only |
-| `ggml-base.bin` | 142 MB | Fast | Moderate | Good for general use |
-| `ggml-base.en.bin` | 142 MB | Fast | Moderate | English-only |
-| `ggml-small.bin` | 466 MB | Moderate | Good | |
-| `ggml-small.en.bin` | 466 MB | Moderate | Good | English-only |
-| `ggml-medium.bin` | 1.5 GB | Slow | Very good | |
-| `ggml-large-v3.bin` | 3.1 GB | Very slow | Excellent | |
-| `ggml-large-v3-turbo.bin` | 1.5 GB | Moderate | Excellent | **Recommended** |
-
-Download source: `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}`
-
-#### UI
-
-- New tab or panel: **Models**
-- Table/list showing each catalog entry with columns: Name, Size, Status (`Not downloaded` / `Downloaded` / `Loaded`), Action button.
-- **Download** button: starts async download with a progress bar; file saved to a configurable models directory (default: `%AppData%\WhisperTyper\models\`).
-- **Load** button: available when file exists; triggers `WhisperController.LoadModelAsync`.
-- **Delete** button: removes the `.bin` file from disk (with confirmation) when not currently loaded.
-- Local model directory is also scanned on startup; any `.bin` files found are added to the combo and shown in the manager with "Downloaded" status.
-
-#### Implementation Notes
-
-- Download via `HttpClient` with `IProgress<long>` for byte-level progress.
-- Checksum verification (SHA256) against a hardcoded manifest to confirm file integrity after download.
-- Cancellable downloads (CancellationTokenSource exposed to the UI).
-- Model directory path is user-configurable and persisted in `settings.json`.
-
-#### Settings additions
-
-| Field | Type | Description |
-|---|---|---|
-| `ModelsDirectory` | `string` | Directory where downloaded models are stored |
-
----
-
-### 4.3 Custom Dictionary
-
-**Purpose:** Allow users to define words or phrases that Whisper consistently mishears and replace them with the correct spelling on each transcription.
-
-**Scope:** A simple find-and-replace list applied as a post-processing step after transcription, before text is typed at the cursor.
-
-#### Behaviour
-
-- Each dictionary entry is a (trigger, replacement) pair.
-- Matching is case-insensitive on the trigger.
-- Replacement preserves the original casing style:
-  - If the matched text is ALL CAPS → replacement is uppercased.
-  - If the matched text is Title Case → replacement is title-cased.
-  - Otherwise → replacement is used as-is.
-- Matching uses whole-word boundaries (regex `\b`) to avoid partial replacements (e.g. "his" should not match inside "this").
-- Entries are applied in order; a word already replaced is not re-matched.
-
-**Example entries:**
-
-| Trigger (Whisper output) | Replacement |
+| Area | Idea |
 |---|---|
-| `wisper` | `Whisper` |
-| `eye phone` | `iPhone` |
-| `chat gpt` | `ChatGPT` |
-| `john smith` | `John Smith` |
-
-#### Storage
-
-- File: `%AppData%\WhisperTyper\dictionary.json`
-- Format: JSON array of `{ "trigger": "...", "replacement": "..." }` objects.
-
-#### UI
-
-- New tab or panel: **Dictionary**
-- Editable data grid with two columns: Trigger, Replacement.
-- Add row button, delete selected row button.
-- Changes are saved immediately (on each edit) or via explicit Save button — TBD.
-- Import/export as CSV for easy sharing.
-
-#### Implementation Notes
-
-- `DictionaryService` class with a `Apply(string text) → string` method.
-- Called inside `WhisperController.StopRecordingAsync` after `RunFullTranscription` returns, before `TranscriptionCompleted` is fired.
-- Regex patterns are compiled once when the dictionary is loaded and cached; recompiled when dictionary changes.
-
----
-
-### 4.4 Filler Word Removal
-
-**Purpose:** Automatically strip common spoken filler words from transcription output so the typed text reads cleanly without manual editing.
-
-**Scope:** A configurable post-processing step applied after transcription and before custom dictionary replacement.
-
-#### Default Filler Word List
-
-```
-um, uh, er, ah, like, you know, I mean, sort of, kind of,
-basically, literally, actually, so, well, right, okay, yeah
-```
-
-#### Behaviour
-
-- Each filler word/phrase is matched case-insensitively at word boundaries.
-- After removal, double spaces, leading/trailing spaces, and dangling punctuation (e.g. ", , word") are cleaned up.
-- The list is fully user-editable — users can add domain-specific fillers or remove entries they want to keep.
-- A master enable/disable toggle turns the entire feature on or off without clearing the list.
-
-**Example:**
-
-| Input | Output |
-|---|---|
-| `"Um, I think, like, we should uh go to the meeting"` | `"I think we should go to the meeting"` |
-| `"So basically what I'm saying is, you know, it works"` | `"What I'm saying is it works"` |
-
-#### Storage
-
-- Filler words list stored in `settings.json` under a `FillerWords` string array field.
-- Enable/disable toggle stored as `FillerWordRemovalEnabled` boolean in `settings.json`.
-
-#### UI
-
-- Settings panel section: **Filler Word Removal**
-- Toggle switch: Enable / Disable
-- Editable tag list (chips) of filler words — click a chip to remove, text field + Add button to add new ones
-- "Reset to defaults" button
-
-#### Implementation Notes
-
-- `FillerWordFilter` class with `Apply(string text) → string` method.
-- Called in `WhisperController.StopRecordingAsync` as the first post-processing step (before custom dictionary).
-- Regex patterns compiled once on filter construction; recompiled when the word list changes.
-- Processing order in pipeline: `RunFullTranscription` → `FillerWordFilter.Apply` → `DictionaryService.Apply` → `TranscriptionCompleted` event → `KeyboardSimulator.SimulateTypeString`.
+| Unicode | Handle surrogate pairs in `KeyboardSimulator` for emoji / beyond U+FFFF |
+| Installer | MSI or MSIX package for one-click install |
+| Max recording | Enforce a configurable maximum recording duration with a warning |
+| Multi-model | Preload a second model while one is active for instant switching |
 
 ---
 
@@ -409,7 +323,7 @@ basically, literally, actually, so, well, right, okay, yeah
 | Settings | `%AppData%\WhisperTyper\settings.json` | User preferences |
 | History | `%AppData%\WhisperTyper\history.json` | Transcription history entries |
 | Dictionary | `%AppData%\WhisperTyper\dictionary.json` | Custom word replacements |
-| Downloaded models | `%AppData%\WhisperTyper\models\` | GGML `.bin` files (default location) |
+| Downloaded models | `%AppData%\WhisperTyper\models\` | GGML `.bin` files |
 | Temp audio | `%TEMP%\wt_{guid}.wav` | Per-transcription temp file, deleted immediately after use |
 
 ---
@@ -437,5 +351,6 @@ basically, literally, actually, so, well, right, okay, yeah
 | Max recording | No enforced maximum recording duration. Very long recordings (>60 s) will produce large temp WAV files and may exhaust GPU VRAM during transcription. |
 | Model memory | Loading large models (large-v3, 3.1 GB) requires sufficient GPU VRAM; no VRAM check before load attempt. |
 | Multi-model | Only one model can be loaded at a time. Switching models requires unloading the current one first. |
-| Focus timing | Text is typed at the window that was focused at the moment `SendInput` is called, which is after transcription completes. If the user switches focus during transcription, text goes to the wrong window. |
-| No installer | Distributed as source only; no MSI or MSIX installer package yet. |
+| Focus timing | Text is typed at the window focused at the moment `SendInput` is called. If the user switches focus during transcription, text goes to the wrong window. |
+| Streaming accuracy | Partial transcriptions use a separate Whisper run on the same context; non-determinism between runs means the streamed and final text can differ slightly. Word-level fuzzy deduplication handles most cases but is not guaranteed to be perfect. |
+| No installer | Distributed as source only; no MSI or MSIX installer package. |
