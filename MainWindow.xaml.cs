@@ -334,12 +334,9 @@ namespace WhisperTyper
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
             string adapter = ComboGpu.SelectedItem as string ?? "";
-            eLanguage language = (eLanguage)0;
-
-            if (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> selectedLang)
-            {
+            eLanguage? language = null;
+            if (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> selectedLang && selectedLang.Key != "Auto-Detect")
                 language = selectedLang.Value;
-            }
 
             // Load asynchronously in background
             Task.Run(async () => {
@@ -515,11 +512,9 @@ namespace WhisperTyper
             // If model is already loaded, we update parameters on the fly
             if (_controller != null && _controller.LoadState == ModelLoadState.Loaded)
             {
-                eLanguage language = (eLanguage)0;
-                if (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> selectedLang)
-                {
+                eLanguage? language = null;
+                if (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> selectedLang && selectedLang.Key != "Auto-Detect")
                     language = selectedLang.Value;
-                }
                 _controller.ConfigureContext(language);
             }
         }

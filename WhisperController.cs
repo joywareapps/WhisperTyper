@@ -67,7 +67,7 @@ namespace WhisperTyper
             catch (Exception ex) { ErrorOccurred?.Invoke($"Failed to list microphones: {ex.Message}"); return []; }
         }
 
-        public async Task LoadModelAsync(string modelPath, string adapter, eLanguage language)
+        public async Task LoadModelAsync(string modelPath, string adapter, eLanguage? language)
         {
             if (!File.Exists(modelPath))
             {
@@ -121,10 +121,12 @@ namespace WhisperTyper
             }
         }
 
-        public void ConfigureContext(eLanguage language)
+        public void ConfigureContext(eLanguage? language)
         {
             if (_context == null) return;
-            _context.parameters.language = language;
+            // Only set language when a specific one is chosen; leaving it unset lets Whisper auto-detect.
+            if (language.HasValue)
+                _context.parameters.language = language.Value;
             _context.parameters.setFlag(eFullParamsFlags.Translate, false);
             _context.parameters.cpuThreads = Math.Max(1, Environment.ProcessorCount / 2);
         }
