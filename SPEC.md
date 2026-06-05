@@ -95,7 +95,8 @@ No audio, text, or telemetry leaves the machine at any point.
 - Fires `HotkeyStateChanged(false)` on `WM_KEYUP` / `WM_SYSKEYUP`.
 - Optionally swallows the hotkey event (returns `(IntPtr)1` instead of calling `CallNextHookEx`) to prevent side effects — enabled by default for Caps Lock and Left Alt.
 - Default hotkey: **Caps Lock** (virtual key code `0x14`).
-- Available hotkeys: Caps Lock (`0x14`), Scroll Lock (`0x91`), Left Alt (`0xA4`), Left Ctrl (`0xA2`), F9 (`0x78`), F10 (`0x79`).
+- Available hotkeys: Caps Lock (`0x14`), Scroll Lock (`0x91`), Left Alt (`0xA4`), Left Ctrl (`0xA2`), Ctrl+Win (`0x5B` + modifier `0x11`), F9 (`0x78`), F10 (`0x79`).
+- Combo hotkeys specify a primary key and an optional modifier virtual key code (`ModifierVirtualCode`). The modifier is tracked generically — `VK_CONTROL (0x11)` matches both Left and Right Ctrl; same pattern applies to Shift (`0x10`) and Alt (`0x12`). Releasing either key in a combo fires the stop.
 
 **Constraint:** The hook must be installed from a thread with a running message pump. In WPF this is the UI thread; the hook is installed in `MainWindow` constructor.
 
@@ -169,7 +170,7 @@ No audio, text, or telemetry leaves the machine at any point.
 | `ModelPath` | string | Full path to the last loaded `.bin` model |
 | `GpuAdapter` | string | Display name of the selected GPU adapter |
 | `Language` | string | Display name of the selected language (e.g. `"English"`, `"Auto-Detect"`) |
-| `HotkeyIndex` | int | Index into the hardcoded hotkey list in `ComboHotkey` |
+| `HotkeyIndex` | int | Index into the hardcoded `HotkeyOption` list in `ComboHotkey` (0=Caps Lock, 1=Scroll Lock, 2=Left Alt, 3=Left Ctrl, 4=Ctrl+Win, 5=F9, 6=F10) |
 
 Settings are loaded on `MainWindow.Loaded` and saved on `MainWindow.Closed`.
 
