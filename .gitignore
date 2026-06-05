@@ -16,6 +16,9 @@ obj/
 *.nupkg
 packages/
 
+# Claude Code
+.claude/
+
 # OS
 Thumbs.db
 Desktop.ini
