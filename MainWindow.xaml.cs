@@ -51,6 +51,11 @@ namespace WhisperTyper
             _controller.TranscriptionCompleted += OnTranscriptionCompleted;
             _controller.ErrorOccurred += OnControllerErrorOccurred;
             _controller.DiagnosticLog += msg => Dispatcher.Invoke(() => LogMessage(msg));
+            _controller.PartialTranscriptionReady += text => Dispatcher.Invoke(() =>
+            {
+                string preview = text.Length > 60 ? text[..57] + "..." : text;
+                TxtSubStatus.Text = $"🎙 \"{preview}\"";
+            });
 
             // Set up events from keyboard hook
             _keyboardHook.HotkeyStateChanged += OnHotkeyStateChanged;

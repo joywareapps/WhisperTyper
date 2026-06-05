@@ -15,10 +15,15 @@ namespace WhisperTyper
         private iModel? _model;
         private Context? _context;
 
-        // NAudio capture — replaces runCapture/iAudioCapture
+        // NAudio capture
         private WasapiCapture? _wasapiCapture;
         private readonly List<byte> _captureBuffer = new();
         private WaveFormat? _captureFormat;
+
+        // Streaming: periodic partial transcription during recording
+        private readonly SemaphoreSlim _transcriptionLock = new(1, 1);
+        private CancellationTokenSource? _partialCts;
+        private const int PartialIntervalMs = 4000; // how often to run partial transcription
 
         private ModelLoadState _loadState = ModelLoadState.Unloaded;
         private RecordingState _recordingState = RecordingState.Idle;
@@ -27,6 +32,7 @@ namespace WhisperTyper
         public event Action<ModelLoadState>? LoadStateChanged;
         public event Action<RecordingState, string>? RecordingStateChanged;
         public event Action<string>? TranscriptionCompleted;
+        public event Action<string>? PartialTranscriptionReady;
         public event Action<string>? ErrorOccurred;
         public event Action<string>? DiagnosticLog;
 
@@ -157,6 +163,9 @@ namespace WhisperTyper
                 _wasapiCapture.StartRecording();
                 SetState(RecordingState.Recording, "Recording... Speak now");
                 DiagnosticLog?.Invoke($"[Capture] WASAPI started on: {micDevice.displayName} ({_captureFormat})");
+
+                _partialCts = new CancellationTokenSource();
+                _ = RunPartialTranscriptionLoop(_partialCts.Token);
             }
             catch (Exception ex)
             {
@@ -169,6 +178,10 @@ namespace WhisperTyper
         public async Task StopRecordingAsync()
         {
             if (CurrentState != RecordingState.Recording) return;
+
+            // Stop the partial loop and wait for any in-flight partial transcription to finish.
+            _partialCts?.Cancel();
+            _partialCts = null;
 
             SetState(RecordingState.Transcribing, "Processing audio...");
 
@@ -183,7 +196,11 @@ namespace WhisperTyper
 
             try
             {
-                string transcription = await Task.Run(() => RunFullTranscription(wavBytes));
+                // Acquire lock — waits if a partial transcription is still running.
+                await _transcriptionLock.WaitAsync();
+                string transcription;
+                try { transcription = await Task.Run(() => RunFullTranscription(wavBytes)); }
+                finally { _transcriptionLock.Release(); }
 
                 if (!string.IsNullOrWhiteSpace(transcription))
                 {
@@ -238,6 +255,45 @@ namespace WhisperTyper
             {
                 try { File.Delete(tempPath); } catch { }
             }
+        }
+
+        private async Task RunPartialTranscriptionLoop(CancellationToken ct)
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(PartialIntervalMs, ct); }
+                catch (OperationCanceledException) { break; }
+
+                if (ct.IsCancellationRequested) break;
+
+                // Skip this cycle if the context is already busy with a previous partial.
+                if (!await _transcriptionLock.WaitAsync(0)) continue;
+                try
+                {
+                    byte[] snapshot = GetWavSnapshot();
+                    if (snapshot.Length == 0) continue;
+                    DiagnosticLog?.Invoke("[Partial] Running mid-recording transcription...");
+                    string partial = RunFullTranscription(snapshot);
+                    if (!string.IsNullOrWhiteSpace(partial))
+                    {
+                        DiagnosticLog?.Invoke($"[Partial] Preview: \"{partial}\"");
+                        PartialTranscriptionReady?.Invoke(partial);
+                    }
+                }
+                finally { _transcriptionLock.Release(); }
+            }
+        }
+
+        // Snapshot the current capture buffer as a WAV without stopping capture.
+        private byte[] GetWavSnapshot()
+        {
+            byte[] raw;
+            lock (_captureBuffer) raw = _captureBuffer.ToArray();
+            if (raw.Length == 0 || _captureFormat == null) return [];
+            var ms = new MemoryStream();
+            using (var writer = new WaveFileWriter(ms, _captureFormat))
+                writer.Write(raw, 0, raw.Length);
+            return ms.ToArray();
         }
 
         private byte[] StopWasapiAndGetWav()
