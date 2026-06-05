@@ -33,7 +33,8 @@ namespace WhisperTyper
             int HotkeyIndex = 0,
             bool FillerWordRemovalEnabled = true,
             string[]? FillerWords = null,
-            string ModelsDirectory = "");
+            string ModelsDirectory = "",
+            bool FixPeriodSpacing = true);
 
         private record HotkeyOption(string Label, int KeyCode, int ModifierCode = 0, bool Swallow = true);
 
@@ -142,7 +143,7 @@ namespace WhisperTyper
 
             // Restore filler word settings
             InitFillerWords(saved);
-            InitDictionary();
+            InitDictionary(saved);
             InitHistory();
             InitModelManager(saved);
         }
@@ -168,7 +169,8 @@ namespace WhisperTyper
                     HotkeyIndex: ComboHotkey.SelectedIndex,
                     FillerWordRemovalEnabled: ChkFillerEnabled.IsChecked == true,
                     FillerWords: [.. _fillerWords],
-                    ModelsDirectory: _modelManager?.ModelsDirectory ?? "");
+                    ModelsDirectory: _modelManager?.ModelsDirectory ?? "",
+                    FixPeriodSpacing: ChkPeriodSpacing.IsChecked == true);
                 File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s));
             }
             catch { }
@@ -675,8 +677,10 @@ namespace WhisperTyper
 
         // ── Custom Dictionary ───────────────────────────────────────────────
 
-        private void InitDictionary()
+        private void InitDictionary(AppSettings saved)
         {
+            _controller.Dictionary.FixPeriodSpacing = saved.FixPeriodSpacing;
+            ChkPeriodSpacing.IsChecked = saved.FixPeriodSpacing;
             DictItemsControl.ItemsSource = _controller.Dictionary.Entries;
         }
 
@@ -701,6 +705,11 @@ namespace WhisperTyper
         {
             _controller.Dictionary.Save();
             _controller.Dictionary.Compile();
+        }
+
+        private void PeriodSpacing_Changed(object sender, RoutedEventArgs e)
+        {
+            _controller.Dictionary.FixPeriodSpacing = ChkPeriodSpacing.IsChecked == true;
         }
 
         // ── History ─────────────────────────────────────────────────────────

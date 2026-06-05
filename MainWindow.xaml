@@ -476,6 +476,25 @@
                                 <TextBlock Grid.Column="0" Text="Whisper hears…" FontSize="10" Foreground="#8B5CF6" FontWeight="SemiBold"/>
                                 <TextBlock Grid.Column="1" Text="Replace with" FontSize="10" Foreground="#8B5CF6" FontWeight="SemiBold" Margin="8,0,0,0"/>
                             </Grid>
+                            <!-- Built-in: period spacing fix -->
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="28"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" Text="sentence.Next" IsReadOnly="True"
+                                         Background="#1E1A30" Foreground="#6B6878" BorderBrush="#2D283E"
+                                         BorderThickness="1" Height="26" Padding="6,3" FontSize="11" FontStyle="Italic"/>
+                                <TextBox Grid.Column="1" Text="sentence. Next" IsReadOnly="True"
+                                         Background="#1E1A30" Foreground="#6B6878" BorderBrush="#2D283E"
+                                         BorderThickness="1" Height="26" Padding="6,3" FontSize="11" FontStyle="Italic"
+                                         Margin="6,0,6,0"/>
+                                <CheckBox x:Name="ChkPeriodSpacing" Grid.Column="2"
+                                          IsChecked="True" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                          ToolTip="Add space after period when missing (e.g. &quot;one.Two&quot; → &quot;one. Two&quot;)"
+                                          Checked="PeriodSpacing_Changed" Unchecked="PeriodSpacing_Changed"/>
+                            </Grid>
                             <!-- Rows -->
                             <ItemsControl x:Name="DictItemsControl">
                                 <ItemsControl.ItemTemplate>

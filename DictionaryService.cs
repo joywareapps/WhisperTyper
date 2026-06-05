@@ -21,6 +21,11 @@ namespace WhisperTyper
 
         public List<DictionaryEntry> Entries { get; private set; } = [];
 
+        /// <summary>Ensures every sentence-ending period is followed by a space (e.g. "one.Two" → "one. Two").</summary>
+        public bool FixPeriodSpacing { get; set; } = true;
+
+        private static readonly Regex _periodFix = new(@"\.(?=[^\s])", RegexOptions.Compiled);
+
         public DictionaryService() => Load();
 
         public void Load()
@@ -58,6 +63,8 @@ namespace WhisperTyper
         public string Apply(string text)
         {
             if (string.IsNullOrEmpty(text)) return text;
+            if (FixPeriodSpacing)
+                text = _periodFix.Replace(text, ". ");
             foreach (var entry in _compiled)
                 text = entry.Pattern.Replace(text, m => MatchCase(m.Value, entry.Replacement));
             return text;
