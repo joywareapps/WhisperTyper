@@ -831,7 +831,7 @@ namespace WhisperTyper
             if (!File.Exists(model.LocalPath)) return;
             if (!ComboModelPath.Items.Contains(model.LocalPath))
                 ComboModelPath.Items.Insert(0, model.LocalPath);
-            ComboModelPath.SelectedItem = model.LocalPath;
+            ComboModelPath.Text = model.LocalPath;
             TriggerEagerModelLoad();
         }
 

@@ -277,20 +277,50 @@
                                             </StackPanel>
                                             <TextBlock Grid.Column="1" Text="{Binding SizeLabel}" FontSize="10"
                                                        Foreground="#6B6878" VerticalAlignment="Center"/>
-                                            <!-- Progress bar (visible only while downloading) -->
-                                            <ProgressBar Grid.Column="2" Value="{Binding Progress}" Minimum="0" Maximum="100"
+                                            <!-- Progress bar: only while downloading -->
+                                            <ProgressBar x:Name="DlProgress" Grid.Column="2" Value="{Binding Progress}" Minimum="0" Maximum="100"
                                                          Height="4" VerticalAlignment="Center" Margin="6,0"
-                                                         Foreground="#8B5CF6" Background="#2D283E" BorderThickness="0"/>
+                                                         Foreground="#8B5CF6" Background="#2D283E" BorderThickness="0"
+                                                         Visibility="Collapsed"/>
                                             <!-- Action buttons -->
                                             <StackPanel Grid.Column="3" Orientation="Horizontal">
-                                                <Button Content="Download" Tag="{Binding}" Click="ModelDownload_Click"
-                                                        Style="{StaticResource SecondaryButton}" Height="24" Padding="8,0" FontSize="10" Margin="0,0,4,0"/>
-                                                <Button Content="Load" Tag="{Binding}" Click="ModelLoad_Click"
-                                                        Style="{StaticResource ModernButton}" Height="24" Padding="8,0" FontSize="10" Margin="0,0,4,0"/>
-                                                <Button Content="🗑" Tag="{Binding}" Click="ModelDelete_Click"
-                                                        Style="{StaticResource SecondaryButton}" Height="24" Padding="6,0" FontSize="12"/>
+                                                <Button x:Name="BtnDownload" Content="Download" Tag="{Binding}" Click="ModelDownload_Click"
+                                                        Style="{StaticResource SecondaryButton}" Height="24" Padding="8,0" FontSize="10" Margin="0,0,4,0"
+                                                        Visibility="Collapsed"/>
+                                                <Button x:Name="BtnLoad" Content="Load" Tag="{Binding}" Click="ModelLoad_Click"
+                                                        Style="{StaticResource ModernButton}" Height="24" Padding="8,0" FontSize="10" Margin="0,0,4,0"
+                                                        Visibility="Collapsed"/>
+                                                <Button x:Name="BtnDelete" Content="🗑" Tag="{Binding}" Click="ModelDelete_Click"
+                                                        Style="{StaticResource SecondaryButton}" Height="24" Padding="6,0" FontSize="12"
+                                                        Visibility="Collapsed"/>
                                             </StackPanel>
+                                            <Grid.Style><Style TargetType="Grid"/></Grid.Style>
+                                            <Grid.Triggers/>
                                         </Grid>
+                                        <DataTemplate.Triggers>
+                                            <!-- NotDownloaded: show Download only -->
+                                            <DataTrigger Binding="{Binding Status}" Value="NotDownloaded">
+                                                <Setter TargetName="BtnDownload" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <!-- Downloading: show progress bar + Cancel button -->
+                                            <DataTrigger Binding="{Binding Status}" Value="Downloading">
+                                                <Setter TargetName="DlProgress"  Property="Visibility" Value="Visible"/>
+                                                <Setter TargetName="BtnDownload" Property="Visibility" Value="Visible"/>
+                                                <Setter TargetName="BtnDownload" Property="Content"    Value="Cancel"/>
+                                            </DataTrigger>
+                                            <!-- Downloaded: show Load + Delete -->
+                                            <DataTrigger Binding="{Binding Status}" Value="Downloaded">
+                                                <Setter TargetName="BtnLoad"   Property="Visibility" Value="Visible"/>
+                                                <Setter TargetName="BtnDelete" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <!-- Loaded: show Delete only (already loaded, no re-load needed) -->
+                                            <DataTrigger Binding="{Binding Status}" Value="Loaded">
+                                                <Setter TargetName="BtnLoad"   Property="Visibility" Value="Visible"/>
+                                                <Setter TargetName="BtnLoad"   Property="IsEnabled"  Value="False"/>
+                                                <Setter TargetName="BtnDelete" Property="Visibility" Value="Visible"/>
+                                                <Setter TargetName="BtnDelete" Property="IsEnabled"  Value="False"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
