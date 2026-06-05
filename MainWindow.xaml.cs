@@ -27,6 +27,8 @@ namespace WhisperTyper
             string Language = "Auto-Detect",
             int HotkeyIndex = 0);
 
+        private record HotkeyOption(string Label, int KeyCode, int ModifierCode = 0, bool Swallow = true);
+
         // Visual brushes for Status states - fully qualified to avoid ambiguity
         private SolidColorBrush _gpuReadyBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xB9, 0x81)); // Emerald Green
         private SolidColorBrush _cpuReadyBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3B, 0x82, 0xF6)); // Blue
@@ -279,14 +281,15 @@ namespace WhisperTyper
         private void PopulateHotkeys()
         {
             ComboHotkey.Items.Clear();
-            ComboHotkey.Items.Add(new KeyValuePair<string, int>("Caps Lock (Recommended)", 0x14));
-            ComboHotkey.Items.Add(new KeyValuePair<string, int>("Scroll Lock", 0x91));
-            ComboHotkey.Items.Add(new KeyValuePair<string, int>("Left Alt", 0xA4));
-            ComboHotkey.Items.Add(new KeyValuePair<string, int>("Left Ctrl", 0xA2));
-            ComboHotkey.Items.Add(new KeyValuePair<string, int>("F9", 0x78));
-            ComboHotkey.Items.Add(new KeyValuePair<string, int>("F10", 0x79));
-            ComboHotkey.DisplayMemberPath = "Key";
-            ComboHotkey.SelectedIndex = 0; // Caps Lock
+            ComboHotkey.Items.Add(new HotkeyOption("Caps Lock (Recommended)", 0x14));
+            ComboHotkey.Items.Add(new HotkeyOption("Scroll Lock",             0x91));
+            ComboHotkey.Items.Add(new HotkeyOption("Left Alt",                0xA4));
+            ComboHotkey.Items.Add(new HotkeyOption("Left Ctrl",               0xA2));
+            ComboHotkey.Items.Add(new HotkeyOption("Ctrl + Win",              0x5B, ModifierCode: 0x11, Swallow: true));
+            ComboHotkey.Items.Add(new HotkeyOption("F9",                      0x78, Swallow: false));
+            ComboHotkey.Items.Add(new HotkeyOption("F10",                     0x79, Swallow: false));
+            ComboHotkey.DisplayMemberPath = "Label";
+            ComboHotkey.SelectedIndex = 0;
         }
 
         private void ScanForModels()
@@ -384,8 +387,8 @@ namespace WhisperTyper
                         string adapterText = _controller.LoadedAdapter;
                         TxtStatus.Text = isCpu ? "Ready (CPU Mode)" : $"Ready ({adapterText})";
                         
-                        var selectedHotkey = (KeyValuePair<string, int>)ComboHotkey.SelectedItem;
-                        TxtSubStatus.Text = $"Hold {selectedHotkey.Key.Split(' ')[0]} to start typing speech";
+                        string hotkeyLabel = (ComboHotkey.SelectedItem as HotkeyOption)?.Label ?? "hotkey";
+                        TxtSubStatus.Text = $"Hold {hotkeyLabel} to start typing speech";
                         if (logMessage) LogMessage($"Model loaded successfully on {(isCpu ? "CPU (Reference fallback)" : adapterText)}.");
                         break;
 
@@ -497,18 +500,16 @@ namespace WhisperTyper
 
         private void ComboHotkey_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (ComboHotkey.SelectedItem is KeyValuePair<string, int> item)
+            if (ComboHotkey.SelectedItem is HotkeyOption opt)
             {
-                _keyboardHook.HotkeyVirtualCode = item.Value;
-                // If it's Caps Lock or Alt, swallow it to prevent system toggling
-                _keyboardHook.SwallowHotkey = (item.Value == 0x14 || item.Value == 0xA4 || item.Value == 0xA5);
+                _keyboardHook.HotkeyVirtualCode  = opt.KeyCode;
+                _keyboardHook.ModifierVirtualCode = opt.ModifierCode;
+                _keyboardHook.SwallowHotkey       = opt.Swallow;
 
-                LogMessage($"Hotkey changed to: {item.Key}");
+                LogMessage($"Hotkey changed to: {opt.Label}");
 
                 if (_controller?.LoadState == ModelLoadState.Loaded)
-                {
-                    TxtSubStatus.Text = $"Hold {item.Key.Split(' ')[0]} to start typing speech";
-                }
+                    TxtSubStatus.Text = $"Hold {opt.Label} to start typing speech";
             }
         }
 

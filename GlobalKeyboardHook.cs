@@ -41,7 +41,9 @@ namespace WhisperTyper
         private LowLevelKeyboardProc _proc;
         private IntPtr _hookId = IntPtr.Zero;
         private int _hotkeyVirtualCode;
+        private int _modifierVirtualCode; // 0 = no modifier required
         private bool _isKeyPressed = false;
+        private bool _isModifierHeld = false;
         private bool _swallowHotkey = true;
 
         public event Action<bool>? HotkeyStateChanged;
@@ -49,11 +51,15 @@ namespace WhisperTyper
         public int HotkeyVirtualCode
         {
             get => _hotkeyVirtualCode;
-            set
-            {
-                _hotkeyVirtualCode = value;
-                _isKeyPressed = false;
-            }
+            set { _hotkeyVirtualCode = value; _isKeyPressed = false; }
+        }
+
+        // Set to a VK code to require that modifier held while pressing the hotkey (0 = none).
+        // For Ctrl use 0x11 (tracks both Left and Right Ctrl via GetAsyncKeyState).
+        public int ModifierVirtualCode
+        {
+            get => _modifierVirtualCode;
+            set { _modifierVirtualCode = value; _isKeyPressed = false; _isModifierHeld = false; }
         }
 
         public bool SwallowHotkey
@@ -86,40 +92,65 @@ namespace WhisperTyper
             {
                 int msg = wParam.ToInt32();
                 KBDLLHOOKSTRUCT hookStruct = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                bool isDown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+                bool isUp   = msg == WM_KEYUP   || msg == WM_SYSKEYUP;
+
+                // Track modifier state (match both Left and Right variants of Ctrl/Shift/Alt).
+                if (_modifierVirtualCode != 0 && IsModifierKey(hookStruct.vkCode, _modifierVirtualCode))
+                {
+                    if (isDown) _isModifierHeld = true;
+                    if (isUp)
+                    {
+                        _isModifierHeld = false;
+                        // If modifier released while primary was held, fire key-up.
+                        if (_isKeyPressed)
+                        {
+                            _isKeyPressed = false;
+                            HotkeyStateChanged?.Invoke(false);
+                        }
+                    }
+                }
 
                 if (hookStruct.vkCode == _hotkeyVirtualCode)
                 {
-                    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+                    bool modOk = _modifierVirtualCode == 0 || _isModifierHeld;
+
+                    if (isDown && modOk)
                     {
                         if (!_isKeyPressed)
                         {
                             _isKeyPressed = true;
                             HotkeyStateChanged?.Invoke(true);
                         }
-
-                        // Optionally swallow hotkey (e.g. stop Caps Lock from toggling or Alt from triggering menu)
-                        if (_swallowHotkey)
-                        {
-                            return (IntPtr)1; // Swallow event
-                        }
+                        if (_swallowHotkey) return (IntPtr)1;
                     }
-                    else if (msg == WM_KEYUP || msg == WM_SYSKEYUP)
+                    else if (isUp && _isKeyPressed)
                     {
-                        if (_isKeyPressed)
-                        {
-                            _isKeyPressed = false;
-                            HotkeyStateChanged?.Invoke(false);
-                        }
-
-                        if (_swallowHotkey)
-                        {
-                            return (IntPtr)1; // Swallow event
-                        }
+                        _isKeyPressed = false;
+                        HotkeyStateChanged?.Invoke(false);
+                        if (_swallowHotkey) return (IntPtr)1;
+                    }
+                    else if (isDown && _swallowHotkey && modOk)
+                    {
+                        return (IntPtr)1; // swallow auto-repeat
                     }
                 }
             }
 
             return CallNextHookEx(_hookId, nCode, wParam, lParam);
+        }
+
+        // Returns true if vkCode matches the requested modifier, including Left/Right variants.
+        private static bool IsModifierKey(int vkCode, int modifierVk)
+        {
+            if (vkCode == modifierVk) return true;
+            return modifierVk switch
+            {
+                0x11 => vkCode == 0xA2 || vkCode == 0xA3, // VK_CONTROL → L/R Ctrl
+                0x10 => vkCode == 0xA0 || vkCode == 0xA1, // VK_SHIFT   → L/R Shift
+                0x12 => vkCode == 0xA4 || vkCode == 0xA5, // VK_MENU    → L/R Alt
+                _ => false
+            };
         }
 
         public void Dispose()
