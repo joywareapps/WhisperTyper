@@ -1,0 +1,303 @@
+using System.IO;
+using System.Text;
+using NAudio.CoreAudioApi;
+using NAudio.Wave;
+using Whisper;
+
+namespace WhisperTyper
+{
+    public enum ModelLoadState { Unloaded, Loading, Loaded, Failed }
+    public enum RecordingState { Idle, Recording, Transcribing, Typing }
+
+    public class WhisperController : IDisposable
+    {
+        private iMediaFoundation? _mediaFoundation;
+        private iModel? _model;
+        private Context? _context;
+
+        // NAudio capture — replaces runCapture/iAudioCapture
+        private WasapiCapture? _wasapiCapture;
+        private readonly List<byte> _captureBuffer = new();
+        private WaveFormat? _captureFormat;
+
+        private ModelLoadState _loadState = ModelLoadState.Unloaded;
+        private RecordingState _recordingState = RecordingState.Idle;
+        private string _statusMessage = "Ready";
+
+        public event Action<ModelLoadState>? LoadStateChanged;
+        public event Action<RecordingState, string>? RecordingStateChanged;
+        public event Action<string>? TranscriptionCompleted;
+        public event Action<string>? ErrorOccurred;
+        public event Action<string>? DiagnosticLog;
+
+        public ModelLoadState LoadState
+        {
+            get => _loadState;
+            private set { _loadState = value; LoadStateChanged?.Invoke(_loadState); }
+        }
+
+        public RecordingState CurrentState => _recordingState;
+        public string LoadedModelPath { get; private set; } = "";
+        public string LoadedAdapter { get; private set; } = "";
+        public bool IsLoadedOnCpu { get; private set; } = false;
+
+        private void SetState(RecordingState state, string message)
+        {
+            _recordingState = state;
+            _statusMessage = message;
+            RecordingStateChanged?.Invoke(_recordingState, _statusMessage);
+        }
+
+        public WhisperController()
+        {
+            try { _mediaFoundation = Library.initMediaFoundation(); }
+            catch (Exception ex) { ErrorOccurred?.Invoke($"Failed to initialize Media Foundation: {ex.Message}"); }
+        }
+
+        public string[] GetGraphicAdapters()
+        {
+            try { return Library.listGraphicAdapters(); }
+            catch (Exception ex) { ErrorOccurred?.Invoke($"Failed to list GPUs: {ex.Message}"); return []; }
+        }
+
+        public CaptureDeviceId[] GetMicrophones()
+        {
+            if (_mediaFoundation == null) return [];
+            try { return _mediaFoundation.listCaptureDevices() ?? []; }
+            catch (Exception ex) { ErrorOccurred?.Invoke($"Failed to list microphones: {ex.Message}"); return []; }
+        }
+
+        public async Task LoadModelAsync(string modelPath, string adapter, eLanguage language)
+        {
+            if (!File.Exists(modelPath))
+            {
+                LoadState = ModelLoadState.Failed;
+                SetState(RecordingState.Idle, "Model file not found");
+                ErrorOccurred?.Invoke($"Model file not found at: {modelPath}");
+                return;
+            }
+
+            CleanupModel();
+            LoadState = ModelLoadState.Loading;
+            SetState(RecordingState.Idle, "Loading model...");
+
+            try
+            {
+                bool loadedOnCpu = false;
+                iModel loadedModel;
+                try
+                {
+                    loadedModel = await Library.loadModelAsync(modelPath, CancellationToken.None,
+                        eGpuModelFlags.None, adapter,
+                        p => SetState(RecordingState.Idle, $"Loading model on GPU... {p}%"),
+                        eModelImplementation.GPU);
+                }
+                catch (Exception gpuEx)
+                {
+                    SetState(RecordingState.Idle, "GPU load failed, falling back to CPU...");
+                    loadedModel = await Library.loadModelAsync(modelPath, CancellationToken.None,
+                        eGpuModelFlags.None, "",
+                        p => SetState(RecordingState.Idle, $"Loading model on CPU... {p}%"),
+                        eModelImplementation.Reference);
+                    loadedOnCpu = true;
+                    ErrorOccurred?.Invoke($"GPU load failed: {gpuEx.Message}. Using CPU fallback.");
+                }
+
+                _model = loadedModel;
+                _context = _model.createContext();
+                ConfigureContext(language);
+
+                LoadedModelPath = modelPath;
+                LoadedAdapter = loadedOnCpu ? "CPU (Reference)" : adapter;
+                IsLoadedOnCpu = loadedOnCpu;
+                LoadState = ModelLoadState.Loaded;
+                SetState(RecordingState.Idle, IsLoadedOnCpu ? "Ready (CPU Mode)" : "Ready (GPU Mode)");
+            }
+            catch (Exception ex)
+            {
+                LoadState = ModelLoadState.Failed;
+                SetState(RecordingState.Idle, "Model load failed");
+                ErrorOccurred?.Invoke($"Failed to load Whisper model: {ex.Message}");
+            }
+        }
+
+        public void ConfigureContext(eLanguage language)
+        {
+            if (_context == null) return;
+            _context.parameters.language = language;
+            _context.parameters.setFlag(eFullParamsFlags.Translate, false);
+            _context.parameters.cpuThreads = Math.Max(1, Environment.ProcessorCount / 2);
+        }
+
+        public void StartRecording(CaptureDeviceId micDevice)
+        {
+            if (LoadState != ModelLoadState.Loaded || _context == null)
+            {
+                ErrorOccurred?.Invoke("Model not loaded"); return;
+            }
+            if (CurrentState != RecordingState.Idle) return;
+
+            try
+            {
+                var enumerator = new MMDeviceEnumerator();
+                var mmDevice = enumerator.GetDevice(micDevice.endpoint);
+
+                _wasapiCapture = new WasapiCapture(mmDevice);
+                _captureFormat = _wasapiCapture.WaveFormat;
+                lock (_captureBuffer) _captureBuffer.Clear();
+
+                _wasapiCapture.DataAvailable += (_, e) =>
+                {
+                    lock (_captureBuffer)
+                        _captureBuffer.AddRange(new ArraySegment<byte>(e.Buffer, 0, e.BytesRecorded));
+                };
+
+                _wasapiCapture.StartRecording();
+                SetState(RecordingState.Recording, "Recording... Speak now");
+                DiagnosticLog?.Invoke($"[Capture] WASAPI started on: {micDevice.displayName} ({_captureFormat})");
+            }
+            catch (Exception ex)
+            {
+                StopWasapi();
+                SetState(RecordingState.Idle, "Recording start failed");
+                ErrorOccurred?.Invoke($"Failed to start recording: {ex.Message}");
+            }
+        }
+
+        public async Task StopRecordingAsync()
+        {
+            if (CurrentState != RecordingState.Recording) return;
+
+            SetState(RecordingState.Transcribing, "Processing audio...");
+
+            byte[] wavBytes = StopWasapiAndGetWav();
+            DiagnosticLog?.Invoke($"[Capture] Captured {wavBytes.Length / 1024} KB WAV");
+
+            if (wavBytes.Length == 0)
+            {
+                SetState(RecordingState.Idle, "No audio captured");
+                return;
+            }
+
+            try
+            {
+                string transcription = await Task.Run(() => RunFullTranscription(wavBytes));
+
+                if (!string.IsNullOrWhiteSpace(transcription))
+                {
+                    string snippet = transcription.Length > 40 ? transcription[..37] + "..." : transcription;
+                    SetState(RecordingState.Typing, $"Typing: \"{snippet}\"");
+                    TranscriptionCompleted?.Invoke(transcription);
+                    SetState(RecordingState.Idle, $"Done: \"{snippet}\"");
+                }
+                else
+                {
+                    SetState(RecordingState.Idle, "No speech detected");
+                }
+            }
+            catch (Exception ex)
+            {
+                SetState(RecordingState.Idle, "Transcription failed");
+                ErrorOccurred?.Invoke($"Transcription error: {ex.Message}");
+            }
+        }
+
+        private string RunFullTranscription(byte[] wavBytes)
+        {
+            if (_mediaFoundation == null || _context == null) return "";
+
+            // Write to a temp WAV file so we can use loadAudioFile → iAudioBuffer → runFull.
+            string tempPath = Path.Combine(Path.GetTempPath(), $"wt_{Guid.NewGuid():N}.wav");
+            try
+            {
+                File.WriteAllBytes(tempPath, wavBytes);
+                DiagnosticLog?.Invoke($"[Transcribe] Temp WAV: {new FileInfo(tempPath).Length / 1024} KB");
+
+                var buffer = _mediaFoundation.loadAudioFile(tempPath, false);
+                var callbacks = new MyCallbacks(msg => DiagnosticLog?.Invoke(msg));
+                _context.runFull(buffer, callbacks);
+
+                var segs = _context.results(eResultFlags.None).segments;
+                DiagnosticLog?.Invoke($"[Transcribe] {segs.Length} segment(s) from context.results()");
+
+                var sb = new StringBuilder();
+                foreach (var seg in segs)
+                    if (!string.IsNullOrEmpty(seg.text))
+                        sb.Append(seg.text);
+
+                string result = sb.ToString().Trim();
+                if (string.IsNullOrEmpty(result))
+                    result = callbacks.GetText();
+
+                DiagnosticLog?.Invoke($"[Transcribe] Result: \"{result}\"");
+                return result;
+            }
+            finally
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+        }
+
+        private byte[] StopWasapiAndGetWav()
+        {
+            _wasapiCapture?.StopRecording();
+            _wasapiCapture?.Dispose();
+            _wasapiCapture = null;
+
+            byte[] raw;
+            lock (_captureBuffer) raw = _captureBuffer.ToArray();
+
+            if (raw.Length == 0 || _captureFormat == null) return [];
+
+            // Write WAV into a MemoryStream; ToArray() works even after the writer disposes the stream.
+            var ms = new MemoryStream();
+            using (var writer = new WaveFileWriter(ms, _captureFormat))
+                writer.Write(raw, 0, raw.Length);
+            return ms.ToArray();
+        }
+
+        private void StopWasapi()
+        {
+            _wasapiCapture?.StopRecording();
+            _wasapiCapture?.Dispose();
+            _wasapiCapture = null;
+        }
+
+        private void CleanupModel()
+        {
+            StopWasapi();
+            if (_context is IDisposable d) d.Dispose();
+            _context = null;
+            _model?.Dispose();
+            _model = null;
+            LoadState = ModelLoadState.Unloaded;
+        }
+
+        public void Dispose()
+        {
+            CleanupModel();
+            _mediaFoundation?.Dispose();
+            _mediaFoundation = null;
+        }
+
+        private class MyCallbacks : Callbacks
+        {
+            private readonly StringBuilder _text = new();
+            private readonly Action<string>? _log;
+
+            public MyCallbacks(Action<string>? log = null) => _log = log;
+
+            protected override void onNewSegment(Context sender, int countNew)
+            {
+                var segs = sender.results(eResultFlags.None).segments;
+                int start = segs.Length - countNew;
+                for (int i = start; i < segs.Length; i++)
+                    if (!string.IsNullOrEmpty(segs[i].text))
+                        _text.Append(segs[i].text);
+                _log?.Invoke($"[Transcribe] onNewSegment +{countNew}");
+            }
+
+            public string GetText() => _text.ToString().Trim();
+        }
+    }
+}
