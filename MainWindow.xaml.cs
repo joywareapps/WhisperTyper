@@ -19,6 +19,8 @@ namespace WhisperTyper
         private bool _isClosing = false;
         private string? _detectedDefaultModel;
         private readonly ObservableCollection<string> _fillerWords = new();
+        private ModelManager? _modelManager;
+        private readonly Dictionary<KnownModel, CancellationTokenSource> _downloads = new();
 
         private static readonly string _settingsPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -30,7 +32,8 @@ namespace WhisperTyper
             string Language = "Auto-Detect",
             int HotkeyIndex = 0,
             bool FillerWordRemovalEnabled = true,
-            string[]? FillerWords = null);
+            string[]? FillerWords = null,
+            string ModelsDirectory = "");
 
         private record HotkeyOption(string Label, int KeyCode, int ModifierCode = 0, bool Swallow = true);
 
@@ -138,6 +141,9 @@ namespace WhisperTyper
 
             // Restore filler word settings
             InitFillerWords(saved);
+            InitDictionary();
+            InitHistory();
+            InitModelManager(saved);
         }
 
         private void MainWindow_Closed(object? sender, EventArgs e)
@@ -160,7 +166,8 @@ namespace WhisperTyper
                     Language: (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> l) ? l.Key : "Auto-Detect",
                     HotkeyIndex: ComboHotkey.SelectedIndex,
                     FillerWordRemovalEnabled: ChkFillerEnabled.IsChecked == true,
-                    FillerWords: [.. _fillerWords]);
+                    FillerWords: [.. _fillerWords],
+                    ModelsDirectory: _modelManager?.ModelsDirectory ?? "");
                 File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s));
             }
             catch { }
@@ -587,11 +594,25 @@ namespace WhisperTyper
             }
         }
 
-        private void BtnClearHistory_Click(object sender, RoutedEventArgs e)
+        private void BtnClearPanel_Click(object sender, RoutedEventArgs e)
         {
-            TxtHistory.Clear();
-            LogMessage("History cleared.");
+            if (TabHistory.IsChecked == true)
+            {
+                if (System.Windows.MessageBox.Show("Clear all history?", "WhisperTyper", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                {
+                    _controller.History.Clear();
+                    RefreshHistoryList();
+                }
+            }
+            else
+            {
+                TxtHistory.Clear();
+                LogMessage("Diagnostics cleared.");
+            }
         }
+
+        // kept for legacy call in LogMessage
+        private void BtnClearHistory_Click(object sender, RoutedEventArgs e) => BtnClearPanel_Click(sender, e);
 
         private void ComboModelPath_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -647,6 +668,184 @@ namespace WhisperTyper
             _fillerWords.Clear();
             foreach (var w in FillerWordFilter.Defaults) _fillerWords.Add(w);
             ApplyFillerSettings();
+        }
+
+        // ── Custom Dictionary ───────────────────────────────────────────────
+
+        private void InitDictionary()
+        {
+            DictItemsControl.ItemsSource = _controller.Dictionary.Entries;
+        }
+
+        private void AddDictEntry_Click(object sender, RoutedEventArgs e)
+        {
+            _controller.Dictionary.Entries.Add(new DictionaryEntry());
+            DictItemsControl.Items.Refresh();
+        }
+
+        private void RemoveDictEntry_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is DictionaryEntry entry)
+            {
+                _controller.Dictionary.Entries.Remove(entry);
+                _controller.Dictionary.Save();
+                _controller.Dictionary.Compile();
+                DictItemsControl.Items.Refresh();
+            }
+        }
+
+        private void DictEntry_Changed(object sender, RoutedEventArgs e)
+        {
+            _controller.Dictionary.Save();
+            _controller.Dictionary.Compile();
+        }
+
+        // ── History ─────────────────────────────────────────────────────────
+
+        private void InitHistory()
+        {
+            _controller.History.Changed += () => Dispatcher.Invoke(RefreshHistoryList);
+            RefreshHistoryList();
+        }
+
+        private void RefreshHistoryList()
+        {
+            string filter = TxtHistorySearch.Text.Trim().ToLowerInvariant();
+            var source = string.IsNullOrEmpty(filter)
+                ? _controller.History.Entries
+                : _controller.History.Entries.Where(e => e.Text.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+            HistoryList.ItemsSource = source;
+        }
+
+        private void TabHistory_Checked(object sender, RoutedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            TabDiag.IsChecked = false;
+            PanelHistory.Visibility = Visibility.Visible;
+            TxtHistory.Visibility   = Visibility.Collapsed;
+        }
+
+        private void TabDiag_Checked(object sender, RoutedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            TabHistory.IsChecked = false;
+            PanelHistory.Visibility = Visibility.Collapsed;
+            TxtHistory.Visibility   = Visibility.Visible;
+        }
+
+        private void BtnSearchHistory_Click(object sender, RoutedEventArgs e)
+        {
+            TxtHistorySearch.Visibility = TxtHistorySearch.Visibility == Visibility.Visible
+                ? Visibility.Collapsed : Visibility.Visible;
+            if (TxtHistorySearch.Visibility == Visibility.Visible)
+                TxtHistorySearch.Focus();
+        }
+
+        private void TxtHistorySearch_TextChanged(object sender, TextChangedEventArgs e) => RefreshHistoryList();
+
+        private void HistoryList_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
+
+        private void HistoryCopy_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is HistoryEntry entry)
+                System.Windows.Clipboard.SetText(entry.Text);
+        }
+
+        private void HistoryRetype_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is HistoryEntry entry)
+                KeyboardSimulator.SimulateTypeString(entry.Text);
+        }
+
+        private void HistoryDelete_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is HistoryEntry entry)
+            {
+                _controller.History.Delete(entry.Id);
+                RefreshHistoryList();
+            }
+        }
+
+        // ── Model Manager ───────────────────────────────────────────────────
+
+        private void InitModelManager(AppSettings saved)
+        {
+            string dir = !string.IsNullOrEmpty(saved.ModelsDirectory) && Directory.Exists(saved.ModelsDirectory)
+                ? saved.ModelsDirectory
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WhisperTyper", "models");
+
+            _modelManager = new ModelManager(dir);
+            _modelManager.ModelStatusChanged += m => Dispatcher.Invoke(() => RefreshModelList());
+            _modelManager.RefreshStatus(_controller.LoadedModelPath);
+
+            ModelCatalogList.ItemsSource = ModelManager.Catalog;
+            TxtModelsDir.Text = $"Models stored in: {dir}";
+            RefreshModelList();
+        }
+
+        private void RefreshModelList()
+        {
+            _modelManager?.RefreshStatus(_controller.LoadedModelPath);
+            ModelCatalogList.Items.Refresh();
+        }
+
+        private async void ModelDownload_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not System.Windows.Controls.Button btn || btn.Tag is not KnownModel model) return;
+            if (model.Status == ModelStatus.Downloading) { CancelDownload(model); return; }
+            if (model.Status == ModelStatus.Downloaded || model.Status == ModelStatus.Loaded) return;
+
+            var cts = new CancellationTokenSource();
+            _downloads[model] = cts;
+            btn.Content = "Cancel";
+
+            try
+            {
+                await _modelManager!.DownloadAsync(model, cts.Token);
+                LogMessage($"Downloaded: {model.FileName}");
+                if (!ComboModelPath.Items.Contains(model.LocalPath))
+                    ComboModelPath.Items.Insert(0, model.LocalPath);
+            }
+            catch (OperationCanceledException) { LogMessage($"Download cancelled: {model.FileName}"); }
+            catch (Exception ex)              { LogMessage($"Download failed: {ex.Message}"); }
+            finally
+            {
+                _downloads.Remove(model);
+                RefreshModelList();
+            }
+        }
+
+        private void CancelDownload(KnownModel model)
+        {
+            if (_downloads.TryGetValue(model, out var cts))
+            {
+                cts.Cancel();
+                _downloads.Remove(model);
+            }
+        }
+
+        private void ModelLoad_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not System.Windows.Controls.Button btn || btn.Tag is not KnownModel model) return;
+            if (!File.Exists(model.LocalPath)) return;
+            if (!ComboModelPath.Items.Contains(model.LocalPath))
+                ComboModelPath.Items.Insert(0, model.LocalPath);
+            ComboModelPath.SelectedItem = model.LocalPath;
+            TriggerEagerModelLoad();
+        }
+
+        private void ModelDelete_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not System.Windows.Controls.Button btn || btn.Tag is not KnownModel model) return;
+            if (model.Status == ModelStatus.Loaded)
+            {
+                System.Windows.MessageBox.Show("Cannot delete the currently loaded model.", "WhisperTyper", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (System.Windows.MessageBox.Show($"Delete {model.FileName}?", "WhisperTyper", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+            _modelManager!.Delete(model);
+            LogMessage($"Deleted: {model.FileName}");
+            RefreshModelList();
         }
     }
 }

@@ -19,6 +19,7 @@ namespace WhisperTyper
         private WasapiCapture? _wasapiCapture;
         private readonly List<byte> _captureBuffer = new();
         private WaveFormat? _captureFormat;
+        private DateTimeOffset _recordingStarted;
 
         // Streaming: periodic partial transcription during recording
         private readonly SemaphoreSlim _transcriptionLock = new(1, 1);
@@ -47,6 +48,8 @@ namespace WhisperTyper
         public string LoadedAdapter { get; private set; } = "";
         public bool IsLoadedOnCpu { get; private set; } = false;
         public FillerWordFilter FillerWordFilter { get; } = new();
+        public DictionaryService Dictionary { get; } = new();
+        public HistoryService History { get; } = new();
 
         private void SetState(RecordingState state, string message)
         {
@@ -161,6 +164,7 @@ namespace WhisperTyper
                         _captureBuffer.AddRange(new ArraySegment<byte>(e.Buffer, 0, e.BytesRecorded));
                 };
 
+                _recordingStarted = DateTimeOffset.Now;
                 _wasapiCapture.StartRecording();
                 SetState(RecordingState.Recording, "Recording... Speak now");
                 DiagnosticLog?.Invoke($"[Capture] WASAPI started on: {micDevice.displayName} ({_captureFormat})");
@@ -204,9 +208,18 @@ namespace WhisperTyper
                 finally { _transcriptionLock.Release(); }
 
                 transcription = FillerWordFilter.Apply(transcription);
+                transcription = Dictionary.Apply(transcription);
 
                 if (!string.IsNullOrWhiteSpace(transcription))
                 {
+                    History.Add(new HistoryEntry
+                    {
+                        Text       = transcription,
+                        ModelName  = Path.GetFileName(LoadedModelPath),
+                        DurationMs = (int)(DateTimeOffset.Now - _recordingStarted).TotalMilliseconds,
+                        Language   = LoadedAdapter
+                    });
+
                     string snippet = transcription.Length > 40 ? transcription[..37] + "..." : transcription;
                     SetState(RecordingState.Typing, $"Typing: \"{snippet}\"");
                     TranscriptionCompleted?.Invoke(transcription);
