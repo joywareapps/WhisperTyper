@@ -1,7 +1,9 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Microsoft.Win32;
@@ -16,6 +18,7 @@ namespace WhisperTyper
         private System.Windows.Forms.NotifyIcon? _notifyIcon;
         private bool _isClosing = false;
         private string? _detectedDefaultModel;
+        private readonly ObservableCollection<string> _fillerWords = new();
 
         private static readonly string _settingsPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -25,7 +28,9 @@ namespace WhisperTyper
             string ModelPath = "",
             string GpuAdapter = "",
             string Language = "Auto-Detect",
-            int HotkeyIndex = 0);
+            int HotkeyIndex = 0,
+            bool FillerWordRemovalEnabled = true,
+            string[]? FillerWords = null);
 
         private record HotkeyOption(string Label, int KeyCode, int ModifierCode = 0, bool Swallow = true);
 
@@ -130,6 +135,9 @@ namespace WhisperTyper
                 TriggerEagerModelLoad();
             else
                 LogMessage("No local models detected. Please browse for a Whisper GGML Model (.bin) file.");
+
+            // Restore filler word settings
+            InitFillerWords(saved);
         }
 
         private void MainWindow_Closed(object? sender, EventArgs e)
@@ -150,7 +158,9 @@ namespace WhisperTyper
                     ModelPath: ComboModelPath.Text,
                     GpuAdapter: ComboGpu.SelectedItem as string ?? "",
                     Language: (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> l) ? l.Key : "Auto-Detect",
-                    HotkeyIndex: ComboHotkey.SelectedIndex);
+                    HotkeyIndex: ComboHotkey.SelectedIndex,
+                    FillerWordRemovalEnabled: ChkFillerEnabled.IsChecked == true,
+                    FillerWords: [.. _fillerWords]);
                 File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s));
             }
             catch { }
@@ -585,11 +595,58 @@ namespace WhisperTyper
 
         private void ComboModelPath_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (IsLoaded)
+            if (IsLoaded) TriggerEagerModelLoad();
+        }
+
+        // ── Filler Word Removal ─────────────────────────────────────────────
+
+        private void InitFillerWords(AppSettings saved)
+        {
+            var words = saved.FillerWords ?? FillerWordFilter.Defaults;
+            foreach (var w in words) _fillerWords.Add(w);
+            FillerWordsList.ItemsSource = _fillerWords;
+            ChkFillerEnabled.IsChecked = saved.FillerWordRemovalEnabled;
+            ApplyFillerSettings();
+        }
+
+        private void ApplyFillerSettings()
+        {
+            _controller.FillerWordFilter.IsEnabled = ChkFillerEnabled.IsChecked == true;
+            _controller.FillerWordFilter.SetWords(_fillerWords);
+        }
+
+        private void FillerEnabled_Changed(object sender, RoutedEventArgs e) => ApplyFillerSettings();
+
+        private void AddFillerWord_Click(object sender, RoutedEventArgs e) => AddFillerWordFromTextBox();
+
+        private void FillerWordTextBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) AddFillerWordFromTextBox();
+        }
+
+        private void AddFillerWordFromTextBox()
+        {
+            string word = TxtNewFillerWord.Text.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(word) || _fillerWords.Contains(word)) return;
+            _fillerWords.Add(word);
+            TxtNewFillerWord.Text = "";
+            ApplyFillerSettings();
+        }
+
+        private void RemoveFillerWord_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is string word)
             {
-                TriggerEagerModelLoad();
+                _fillerWords.Remove(word);
+                ApplyFillerSettings();
             }
         }
 
+        private void ResetFillerWords_Click(object sender, RoutedEventArgs e)
+        {
+            _fillerWords.Clear();
+            foreach (var w in FillerWordFilter.Defaults) _fillerWords.Add(w);
+            ApplyFillerSettings();
+        }
     }
 }

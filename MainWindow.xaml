@@ -303,8 +303,88 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Filler Word Removal -->
+                <Border Background="#161127" BorderBrush="#3B2A66" BorderThickness="1" CornerRadius="6" Margin="0,12,0,0">
+                    <Expander x:Name="ExpanderFiller" Foreground="#D1CFCF" Padding="10,8">
+                        <Expander.Header>
+                            <Grid Width="660">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Filler Word Removal" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <CheckBox x:Name="ChkFillerEnabled" Grid.Column="1" Content="Enabled"
+                                          Foreground="#9E9AA8" FontSize="11" FontWeight="Normal"
+                                          VerticalAlignment="Center" Margin="0,0,10,0"
+                                          Checked="FillerEnabled_Changed" Unchecked="FillerEnabled_Changed"/>
+                            </Grid>
+                        </Expander.Header>
+                        <StackPanel Margin="0,8,0,4">
+                            <!-- Chip list -->
+                            <ItemsControl x:Name="FillerWordsList">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#2D283E" BorderBrush="#3B2A66" BorderThickness="1"
+                                                CornerRadius="10" Margin="0,3,5,3" Padding="8,3">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding}" VerticalAlignment="Center" FontSize="11" Foreground="#F3F0FC"/>
+                                                <Button Content="×" Tag="{Binding}" Click="RemoveFillerWord_Click"
+                                                        Background="Transparent" BorderThickness="0"
+                                                        Foreground="#9E9AA8" FontSize="14" Padding="4,0,0,1"
+                                                        Cursor="Hand"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <!-- Add + Reset row -->
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="TxtNewFillerWord" Grid.Column="0"
+                                         Background="#0E0B16" Foreground="#FFFFFF" BorderBrush="#3B2A66"
+                                         BorderThickness="1" Height="28" Padding="8,4"
+                                         FontSize="11" VerticalContentAlignment="Center"
+                                         KeyDown="FillerWordTextBox_KeyDown">
+                                    <TextBox.Style>
+                                        <Style TargetType="TextBox">
+                                            <Style.Triggers>
+                                                <Trigger Property="Text" Value="">
+                                                    <Setter Property="Background">
+                                                        <Setter.Value>
+                                                            <VisualBrush AlignmentX="Left" AlignmentY="Center" Stretch="None">
+                                                                <VisualBrush.Visual>
+                                                                    <TextBlock Text="Add word or phrase…" Foreground="#555" FontSize="11" Margin="8,0"/>
+                                                                </VisualBrush.Visual>
+                                                            </VisualBrush>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBox.Style>
+                                </TextBox>
+                                <Button Grid.Column="1" Content="Add" Margin="6,0,0,0"
+                                        Style="{StaticResource SecondaryButton}" Height="28" Padding="12,0"
+                                        Click="AddFillerWord_Click"/>
+                                <Button Grid.Column="2" Content="Reset defaults" Margin="6,0,0,0"
+                                        Style="{StaticResource SecondaryButton}" Height="28" Padding="12,0"
+                                        Click="ResetFillerWords_Click"/>
+                            </Grid>
+                        </StackPanel>
+                    </Expander>
+                </Border>
+
                 <!-- Transcription Output Panel -->
-                <TextBlock Text="Transcription History &amp; Diagnostics" FontSize="12" FontWeight="SemiBold" Margin="0,15,0,5" Foreground="#D1CFCF"/>
+                <TextBlock Text="Diagnostics Log" FontSize="12" FontWeight="SemiBold" Margin="0,15,0,5" Foreground="#D1CFCF"/>
                 <Border Background="#161127" BorderBrush="#3B2A66" BorderThickness="1" CornerRadius="6" Padding="10">
                     <Grid>
                         <Grid.RowDefinitions>

@@ -46,6 +46,7 @@ namespace WhisperTyper
         public string LoadedModelPath { get; private set; } = "";
         public string LoadedAdapter { get; private set; } = "";
         public bool IsLoadedOnCpu { get; private set; } = false;
+        public FillerWordFilter FillerWordFilter { get; } = new();
 
         private void SetState(RecordingState state, string message)
         {
@@ -201,6 +202,8 @@ namespace WhisperTyper
                 string transcription;
                 try { transcription = await Task.Run(() => RunFullTranscription(wavBytes)); }
                 finally { _transcriptionLock.Release(); }
+
+                transcription = FillerWordFilter.Apply(transcription);
 
                 if (!string.IsNullOrWhiteSpace(transcription))
                 {
