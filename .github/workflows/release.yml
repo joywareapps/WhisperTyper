@@ -36,6 +36,18 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Extract changelog notes
+        id: changelog
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          # Extract the block between this version's heading and the next one
+          notes=$(awk "/^## ${TAG}[[:space:]]/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md)
+          # Pass multiline output safely
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$notes" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Publish
         run: >
           dotnet publish WhisperTyper.csproj
@@ -54,7 +66,7 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: WhisperTyper ${{ steps.version.outputs.tag }}
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.notes }}
           files: WhisperTyper-${{ steps.version.outputs.tag }}-win-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
