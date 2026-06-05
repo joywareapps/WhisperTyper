@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="WhisperTyper" Height="800" Width="755"
+        Icon="App.ico"
         WindowStartupLocation="CenterScreen"
         Background="#0E0B16"
         Foreground="#F3F0FC"

@@ -190,7 +190,7 @@ namespace WhisperTyper
             // Try to load application icon or fallback to default
             try
             {
-                var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/whisper-go;component/App.ico"))?.Stream;
+                var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/WhisperTyper;component/App.ico"))?.Stream;
                 if (iconStream != null)
                 {
                     _notifyIcon.Icon = new System.Drawing.Icon(iconStream);
