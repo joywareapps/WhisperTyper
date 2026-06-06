@@ -305,7 +305,50 @@ Settings are loaded on `MainWindow.Loaded` and saved on `MainWindow.Closed`.
 
 ## 4. Planned Features
 
-No features currently planned. Candidates for future work:
+### 4.1 Model Benchmark
+
+**Purpose:** Run a timed transcription test against each downloaded model on the user's hardware and use the result to drive the ⭐ Recommended label in the Model Manager, replacing the current hardcoded recommendation.
+
+**Scope:** On-device benchmark triggered manually from the Model Manager. Results persisted so they survive restarts without re-running.
+
+#### Behaviour
+
+- A **Run Benchmark** button appears in the Model Manager for each downloaded model (or a single "Benchmark all" button at the top).
+- The benchmark transcribes a short fixed audio clip (~10 seconds of speech, bundled as a resource) and measures wall-clock time from `runFull` start to finish.
+- After all downloaded models are benchmarked, the one with the best **accuracy-adjusted speed** score is marked ⭐ Recommended.
+- Benchmark results (ms per model) are persisted in `settings.json` so the label survives restarts.
+- If a new model is downloaded after benchmarking, it shows "Not benchmarked" until the user runs the benchmark again.
+
+#### Scoring
+
+- **Score = audio_duration_ms / transcription_ms** (real-time factor, higher = faster).
+- Models below a minimum real-time factor threshold (e.g. < 0.5×) are excluded from recommendation regardless of accuracy tier.
+- Among models above the threshold, the largest (highest accuracy tier) is recommended.
+- Accuracy tier order: `large-v3 > large-v3-turbo > medium > small > base > tiny`.
+
+#### UI
+
+- Model Manager row gains a **Benchmark** button (alongside Download / Load / Delete), visible only when the model is downloaded.
+- While benchmarking: button shows spinner / "Testing…", other benchmark buttons disabled.
+- After benchmark: row shows result (e.g. `2.4× realtime`) and the top-scoring model gets the ⭐ label.
+- "Benchmark all downloaded" button at the top of the Model Manager panel.
+
+#### Implementation Notes
+
+- Bundled test clip: a WAV file embedded as a resource (`Resources/benchmark.wav`), ~10 s, 16 kHz mono, representative English speech.
+- Benchmark runs on `Task.Run` (same as normal transcription) to avoid blocking the UI.
+- Uses the same `_transcriptionLock` to prevent concurrent model use.
+- Results stored as `Dictionary<string, BenchmarkResult>` in `settings.json` keyed by model filename.
+
+#### Settings additions
+
+| Field | Type | Description |
+|---|---|---|
+| `BenchmarkResults` | `Dictionary<string, int>` | Model filename → transcription time in ms |
+
+---
+
+### Other candidates for future work
 
 | Area | Idea |
 |---|---|
