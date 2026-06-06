@@ -381,19 +381,12 @@
 
                 <!-- Filler Word Removal -->
                 <Border Background="#161127" BorderBrush="#3B2A66" BorderThickness="1" CornerRadius="6" Margin="0,12,0,0">
-                    <Expander x:Name="ExpanderFiller" Foreground="#D1CFCF" Padding="10,8" HorizontalContentAlignment="Stretch">
+                    <Expander x:Name="ExpanderFiller" Foreground="#D1CFCF" Padding="10,8">
                         <Expander.Header>
-                            <Grid Margin="0,0,20,0" HorizontalAlignment="Stretch">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="Filler Word Removal" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                <CheckBox x:Name="ChkFillerEnabled" Grid.Column="1" Content="Enabled"
-                                          Foreground="#9E9AA8" FontSize="11" FontWeight="Normal"
-                                          VerticalAlignment="Center"
-                                          Checked="FillerEnabled_Changed" Unchecked="FillerEnabled_Changed"/>
-                            </Grid>
+                            <CheckBox x:Name="ChkFillerEnabled" Content="Filler Word Removal"
+                                      Foreground="#D1CFCF" FontSize="12" FontWeight="SemiBold"
+                                      VerticalAlignment="Center"
+                                      Checked="FillerEnabled_Changed" Unchecked="FillerEnabled_Changed"/>
                         </Expander.Header>
                         <StackPanel Margin="0,8,0,4">
                             <!-- Chip list -->
