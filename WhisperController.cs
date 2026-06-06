@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using Whisper;
@@ -206,7 +207,7 @@ namespace WhisperTyper
                 // Acquire lock — waits if a partial transcription is still running.
                 await _transcriptionLock.WaitAsync();
                 string transcription;
-                try { transcription = await Task.Run(() => RunFullTranscription(wavBytes)); }
+                try { transcription = await Task.Run(() => StripArtifacts(RunFullTranscription(wavBytes))); }
                 finally { _transcriptionLock.Release(); }
 
                 transcription = FillerWordFilter.Apply(transcription);
@@ -280,6 +281,15 @@ namespace WhisperTyper
             }
         }
 
+        // Strips Whisper hallucination artifacts: [silence], [BLANK_AUDIO], (music), etc.
+        // Whisper emits these for silence or non-speech audio sections.
+        private static readonly Regex _artifactPattern = new(
+            @"\s*[\[\(]\s*(?:silence|blank[_ ]audio|noise|music|applause|laughter|inaudible|crosstalk|sighs?|coughs?|sneezes?|clapping|cheering|static)\s*[\]\)]\s*",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static string StripArtifacts(string text) =>
+            _artifactPattern.Replace(text, " ").Trim();
+
         // Returns the portion of fullText that comes after the words already covered by typedText,
         // using word-level comparison so punctuation differences between Whisper runs don't cause repeats.
         private static string StripTypedPrefix(string fullText, string typedText)
@@ -341,7 +351,7 @@ namespace WhisperTyper
                     byte[] snapshot = GetWavSnapshot();
                     if (snapshot.Length == 0) continue;
                     DiagnosticLog?.Invoke("[Partial] Running mid-recording transcription...");
-                    string partial = RunFullTranscription(snapshot);
+                    string partial = StripArtifacts(RunFullTranscription(snapshot));
                     partial = FillerWordFilter.Apply(partial);
                     partial = Dictionary.Apply(partial);
 
