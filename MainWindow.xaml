@@ -383,7 +383,7 @@
                 <Border Background="#161127" BorderBrush="#3B2A66" BorderThickness="1" CornerRadius="6" Margin="0,12,0,0">
                     <Expander x:Name="ExpanderFiller" Foreground="#D1CFCF" Padding="10,8" HorizontalContentAlignment="Stretch">
                         <Expander.Header>
-                            <Grid Margin="0,0,20,0">
+                            <Grid Margin="0,0,20,0" HorizontalAlignment="Stretch">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
