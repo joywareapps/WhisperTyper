@@ -133,13 +133,13 @@ namespace WhisperTyper
             }
         }
 
-        public void ConfigureContext(eLanguage? language)
+        public void ConfigureContext(eLanguage? language, bool translate = false)
         {
             if (_context == null) return;
             // Only set language when a specific one is chosen; leaving it unset lets Whisper auto-detect.
             if (language.HasValue)
                 _context.parameters.language = language.Value;
-            _context.parameters.setFlag(eFullParamsFlags.Translate, false);
+            _context.parameters.setFlag(eFullParamsFlags.Translate, translate);
             _context.parameters.cpuThreads = Math.Max(1, Environment.ProcessorCount / 2);
         }
 

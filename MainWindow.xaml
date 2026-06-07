@@ -379,14 +379,23 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Settings Checkboxes -->
+                <!-- Settings Checkboxes Row 1 -->
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                     <CheckBox x:Name="ChkStartup" Content="Start with Windows"
                               Foreground="#D1CFCF" FontSize="11" Margin="0,0,20,0"
                               Checked="ChkStartup_Changed" Unchecked="ChkStartup_Changed"/>
                     <CheckBox x:Name="ChkCopyToClipboard" Content="Always Copy to Clipboard"
-                              Foreground="#D1CFCF" FontSize="11"
+                              Foreground="#D1CFCF" FontSize="11" Margin="0,0,20,0"
                               Checked="ChkCopyToClipboard_Changed" Unchecked="ChkCopyToClipboard_Changed"/>
+                    <CheckBox x:Name="ChkAudioFeedback" Content="Audio Feedback"
+                              Foreground="#D1CFCF" FontSize="11" Margin="0,0,20,0"
+                              Checked="ChkAudioFeedback_Changed" Unchecked="ChkAudioFeedback_Changed"/>
+                </StackPanel>
+                <!-- Settings Checkboxes Row 2 -->
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <CheckBox x:Name="ChkTranslate" Content="Translate to English"
+                              Foreground="#D1CFCF" FontSize="11"
+                              Checked="ChkTranslate_Changed" Unchecked="ChkTranslate_Changed"/>
                 </StackPanel>
 
                 <!-- Filler Word Removal -->

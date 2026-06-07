@@ -36,7 +36,9 @@ namespace WhisperTyper
             string ModelsDirectory = "",
             bool FixPeriodSpacing = true,
             bool StartWithWindows = false,
-            bool AlwaysCopyToClipboard = false);
+            bool AlwaysCopyToClipboard = false,
+            bool TranslateToEnglish = false,
+            bool AudioFeedbackEnabled = false);
 
         private record HotkeyOption(string Label, int KeyCode, int ModifierCode = 0, bool Swallow = true);
 
@@ -143,9 +145,11 @@ namespace WhisperTyper
             else
                 LogMessage("No local models detected. Please browse for a Whisper GGML Model (.bin) file.");
 
-            // Restore startup and clipboard settings
+            // Restore startup, clipboard, translate, and audio feedback settings
             ChkStartup.IsChecked = saved.StartWithWindows;
             ChkCopyToClipboard.IsChecked = saved.AlwaysCopyToClipboard;
+            ChkTranslate.IsChecked = saved.TranslateToEnglish;
+            ChkAudioFeedback.IsChecked = saved.AudioFeedbackEnabled;
 
             // Restore filler word settings
             InitFillerWords(saved);
@@ -178,7 +182,9 @@ namespace WhisperTyper
                     ModelsDirectory: _modelManager?.ModelsDirectory ?? "",
                     FixPeriodSpacing: ChkPeriodSpacing.IsChecked == true,
                     StartWithWindows: ChkStartup.IsChecked == true,
-                    AlwaysCopyToClipboard: ChkCopyToClipboard.IsChecked == true);
+                    AlwaysCopyToClipboard: ChkCopyToClipboard.IsChecked == true,
+                    TranslateToEnglish: ChkTranslate.IsChecked == true,
+                    AudioFeedbackEnabled: ChkAudioFeedback.IsChecked == true);
                 File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s));
             }
             catch { }
@@ -454,6 +460,8 @@ namespace WhisperTyper
                         StatusOuterRing.Stroke = _recordingBrush;
                         _pulseStoryboard?.Begin();
                         TxtStatus.Text = "RECORDING";
+                        if (ChkAudioFeedback.IsChecked == true)
+                            System.Media.SystemSounds.Asterisk.Play();
                         LogMessage("Recording started... Speak now.");
                         break;
 
@@ -462,6 +470,8 @@ namespace WhisperTyper
                         StatusOuterRing.Opacity = 0;
                         StatusCircle.Fill = _transcribingBrush;
                         TxtStatus.Text = "TRANSCRIBING";
+                        if (ChkAudioFeedback.IsChecked == true)
+                            System.Media.SystemSounds.Exclamation.Play();
                         LogMessage("Recording stopped. Running Whisper transcribing...");
                         break;
 
@@ -555,10 +565,7 @@ namespace WhisperTyper
             // If model is already loaded, we update parameters on the fly
             if (_controller != null && _controller.LoadState == ModelLoadState.Loaded)
             {
-                eLanguage? language = null;
-                if (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> selectedLang && selectedLang.Key != "Auto-Detect")
-                    language = selectedLang.Value;
-                _controller.ConfigureContext(language);
+                ApplyContextSettings();
             }
         }
 
@@ -663,6 +670,36 @@ namespace WhisperTyper
             LogMessage(ChkCopyToClipboard.IsChecked == true
                 ? "Always Copy to Clipboard enabled."
                 : "Always Copy to Clipboard disabled.");
+        }
+
+        private void ChkTranslate_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            bool translate = ChkTranslate.IsChecked == true;
+            ApplyContextSettings();
+            LogMessage(translate
+                ? "Translate to English enabled."
+                : "Translate to English disabled.");
+        }
+
+        private void ChkAudioFeedback_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            LogMessage(ChkAudioFeedback.IsChecked == true
+                ? "Audio Feedback enabled."
+                : "Audio Feedback disabled.");
+        }
+
+        /// <summary>
+        /// Pushes current UI settings (language, translate) into the Whisper context.
+        /// </summary>
+        private void ApplyContextSettings()
+        {
+            if (_controller == null || _controller.LoadState != ModelLoadState.Loaded) return;
+            eLanguage? language = null;
+            if (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> selectedLang && selectedLang.Key != "Auto-Detect")
+                language = selectedLang.Value;
+            _controller.ConfigureContext(language, ChkTranslate.IsChecked == true);
         }
 
         // ── Filler Word Removal ─────────────────────────────────────────────
