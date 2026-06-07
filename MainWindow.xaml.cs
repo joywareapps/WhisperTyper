@@ -34,7 +34,9 @@ namespace WhisperTyper
             bool FillerWordRemovalEnabled = true,
             string[]? FillerWords = null,
             string ModelsDirectory = "",
-            bool FixPeriodSpacing = true);
+            bool FixPeriodSpacing = true,
+            bool StartWithWindows = false,
+            bool AlwaysCopyToClipboard = false);
 
         private record HotkeyOption(string Label, int KeyCode, int ModifierCode = 0, bool Swallow = true);
 
@@ -141,6 +143,10 @@ namespace WhisperTyper
             else
                 LogMessage("No local models detected. Please browse for a Whisper GGML Model (.bin) file.");
 
+            // Restore startup and clipboard settings
+            ChkStartup.IsChecked = saved.StartWithWindows;
+            ChkCopyToClipboard.IsChecked = saved.AlwaysCopyToClipboard;
+
             // Restore filler word settings
             InitFillerWords(saved);
             InitDictionary(saved);
@@ -170,7 +176,9 @@ namespace WhisperTyper
                     FillerWordRemovalEnabled: ChkFillerEnabled.IsChecked == true,
                     FillerWords: [.. _fillerWords],
                     ModelsDirectory: _modelManager?.ModelsDirectory ?? "",
-                    FixPeriodSpacing: ChkPeriodSpacing.IsChecked == true);
+                    FixPeriodSpacing: ChkPeriodSpacing.IsChecked == true,
+                    StartWithWindows: ChkStartup.IsChecked == true,
+                    AlwaysCopyToClipboard: ChkCopyToClipboard.IsChecked == true);
                 File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s));
             }
             catch { }
@@ -508,6 +516,13 @@ namespace WhisperTyper
                 LogMessage($"Transcribed: \"{transcription}\"");
                 // Simulate typing at the active cursor
                 KeyboardSimulator.SimulateTypeString(transcription);
+
+                // Auto-copy to clipboard if enabled
+                if (ChkCopyToClipboard.IsChecked == true)
+                {
+                    try { System.Windows.Clipboard.SetText(transcription); }
+                    catch { /* clipboard may be locked */ }
+                }
             });
         }
 
@@ -622,6 +637,32 @@ namespace WhisperTyper
         private void ComboModelPath_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (IsLoaded) TriggerEagerModelLoad();
+        }
+
+        // ── Startup & Clipboard Settings ──────────────────────────────────
+
+        private void ChkStartup_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            bool enable = ChkStartup.IsChecked == true;
+            try
+            {
+                StartupManager.SetStartup(enable);
+                LogMessage(enable ? "Start with Windows enabled." : "Start with Windows disabled.");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Failed to update startup setting: {ex.Message}");
+                ChkStartup.IsChecked = !enable;
+            }
+        }
+
+        private void ChkCopyToClipboard_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            LogMessage(ChkCopyToClipboard.IsChecked == true
+                ? "Always Copy to Clipboard enabled."
+                : "Always Copy to Clipboard disabled.");
         }
 
         // ── Filler Word Removal ─────────────────────────────────────────────

@@ -1,12 +1,18 @@
-# Implementation Plan — Dual Distribution (Installer & Portable) + Core settings
+# Implementation Plan — Dual Distribution (Installer & Portable) + Core Settings & Quick-Win Features
 
 We will set up a automated dual distribution pipeline on GitHub Actions to generate both:
 1. **`WhisperTyperSetup.exe`** — A standard Inno Setup installer that supports a Setup Wizard, desktop shortcuts, and auto-registration on startup (fully silent-run compatible for `winget` installation).
 2. **`WhisperTyper-portable-win-x64.zip`** — A standalone ZIP containing the self-contained app files (portable mode).
 
-To make these options fully functional, we will also implement two missing table-stakes features inside the WPF application:
+To make these options fully functional, we will also implement the following features inside the WPF application. The first two are table-stakes; the next two are quick-win additions identified from the feature roadmap that require minimal effort:
+
+**Table-stakes (required for distribution):**
 * **Start with Windows** (via a registry run key, ensuring both the installer and portable version can run on login).
 * **Always Copy to Clipboard** (auto-copying final transcriptions).
+
+**Quick-win additions (low effort, high value):**
+* **Audio Feedback** — Play a short system sound on recording start/stop using `System.Media.SystemSounds`. Zero external dependencies; ~5 lines of code in `StartRecording` and `StopRecordingAsync`.
+* **Auto-Punctuation Control** — Add a "Strip Punctuation" option that applies a Regex post-processor to remove punctuation from transcription output. Extends the existing post-processing pipeline (alongside filler-word filtering) with minimal changes.
 
 ---
 
@@ -17,20 +23,30 @@ We will modify or create the following files:
 ### ⚙️ WPF Application Updates
 
 #### [MODIFY] [MainWindow.xaml](file:///c:/Source/Repos/WhisperTyper/MainWindow.xaml)
-* Add a row with two new CheckBoxes:
+* Add a row with four new CheckBoxes:
   * `ChkStartup` — "Start with Windows"
   * `ChkCopyToClipboard` — "Always Copy to Clipboard"
+  * `ChkAudioFeedback` — "Audio Feedback on Record"
+  * `ChkStripPunctuation` — "Strip Punctuation"
 * Position these right below the instructions box and above the Filler Words expander.
 
 #### [MODIFY] [MainWindow.xaml.cs](file:///c:/Source/Repos/WhisperTyper/MainWindow.xaml.cs)
 * Update `AppSettings` record to store:
   * `StartWithWindows` (bool)
   * `AlwaysCopyToClipboard` (bool)
+  * `AudioFeedback` (bool)
+  * `StripPunctuation` (bool)
 * Wire up `ChkStartup_Checked` and `ChkCopyToClipboard_Checked` events.
+* Wire up `ChkAudioFeedback_Checked` and `ChkStripPunctuation_Checked` events.
 * Implement startup shortcut registry modifications:
   * Write path to `Software\Microsoft\Windows\CurrentVersion\Run` on check.
   * Delete path on uncheck.
 * Wire up `AlwaysCopyToClipboard` settings check inside `OnTranscriptionCompleted` to set the clipboard contents.
+* Add audio feedback calls:
+  * `System.Media.SystemSounds.Asterisk.Play()` in `StartRecording` (when `AudioFeedback` is enabled).
+  * `System.Media.SystemSounds.Beep.Play()` in `StopRecordingAsync` (when `AudioFeedback` is enabled).
+* Add punctuation stripping regex post-processor:
+  * Apply `Regex.Replace(text, @"[.,\/#!$%\^&\*;:{}=\-_`~()]", "")` in transcription output path when `StripPunctuation` is enabled, integrating alongside existing filler-word filtering.
 
 ---
 
@@ -103,4 +119,6 @@ public static class StartupManager
 ### Manual Verification
 * Run the built application locally and toggle the "Start with Windows" CheckBox. Check the Windows registry (`regedit` at `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) to verify the key `WhisperTyper` is created and points to the correct executable.
 * Toggle the "Always Copy to Clipboard" CheckBox, run a test transcription, and verify the text is in the clipboard.
+* Toggle the "Audio Feedback" CheckBox, start and stop recording, and verify system sounds play at both events.
+* Toggle the "Strip Punctuation" CheckBox, run a test transcription containing punctuation, and verify punctuation is removed from the typed output.
 * Verify the generated Inno Setup `.iss` file syntax.
