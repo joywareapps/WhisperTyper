@@ -16,10 +16,10 @@ We have analyzed the WhisperTyper codebase (`v0.6.0`). Here is how it stacks up 
 | **History log** | Searchable list, copy/re-type/delete | **✅ Done** | [HistoryService.cs](file:///c:/Source/Repos/WhisperTyper/HistoryService.cs) |
 | **Language selection** | Session quick-switch without reload | **✅ Done** | [MainWindow.xaml.cs:L538-548](file:///c:/Source/Repos/WhisperTyper/MainWindow.xaml.cs#L538-L548) |
 | **Auto-punctuation control** | Toggle punctuation additions | **❌ Not Started** | *New feature required* |
-| **Startup with Windows** | Run in system tray on login | **❌ Not Started** | *New feature required* |
-| **Audio feedback** | Sound cue on recording start/stop | **❌ Not Started** | *New feature required* |
+| **Startup with Windows** | Run in system tray on login | **✅ Done** | [StartupManager.cs](file:///c:/Source/Repos/WhisperTyper/StartupManager.cs) |
+| **Audio feedback** | Sound cue on recording start/stop | **✅ Done** | [MainWindow.xaml.cs](file:///c:/Source/Repos/WhisperTyper/MainWindow.xaml.cs) |
 | **Silence timeout** | Auto-stop recording after silence | **❌ Not Started** | *New feature required* |
-| **Transcription clipboard copy**| Auto-copy final output to clipboard | **❌ Not Started** | *New feature required* |
+| **Transcription clipboard copy**| Auto-copy final output to clipboard | **✅ Done** | [MainWindow.xaml.cs](file:///c:/Source/Repos/WhisperTyper/MainWindow.xaml.cs) |
 
 ---
 
@@ -30,7 +30,7 @@ We have analyzed the WhisperTyper codebase (`v0.6.0`). Here is how it stacks up 
 | **Voice commands** | Triggers (e.g., "new paragraph", "delete") | **❌ Not Started** | Medium (Text parser + keystroke emulator) |
 | **Per-app profiles** | App-specific model/lang/hotkey | **❌ Not Started** | Medium (Win32 foreground window hooks) |
 | **File & audio transcription** | Drag-and-drop batch transcription | **❌ Not Started** | Medium (WPF DragDrop + batch tasks) |
-| **Translation mode** | Transcribe foreign tongue -> English text | **❌ Not Started** | **Low** (Supported natively by WhisperNet!) |
+| **Translation mode** | Transcribe foreign tongue -> English text | **✅ Done** | **Low** (Supported natively by WhisperNet!) |
 | **Speaker diarization** | Label speakers in meeting notes | **❌ Not Started** | High (Heavy client-side ML requirements) |
 | **Snippets / shortcuts** | Expand keyword (e.g., "my email" -> address) | **❌ Not Started** | Low (DictionaryService extension) |
 | **Export formats** | SRT, VTT, JSON, plain text exports | **❌ Not Started** | Low (File serializer utility) |
@@ -60,11 +60,7 @@ kanban
     Cloud sync
     Hotword wake mode
   To Do
-    Translation mode (Native WhisperNet)
     Auto-punctuation control
-    Always copy transcription to clipboard
-    Audio feedback (Sound cue on start/stop)
-    Startup with Windows (Registry key run)
     Context window injection (Selection/Clipboard prompt)
     GPU benchmark mode (Real-time speed test)
     Silence timeout (RMS level checks)
@@ -81,6 +77,10 @@ kanban
     History log (History.cs)
     Language quick-switch (ConfigureContext)
     Model manager (Download / Switch UI)
+    Startup with Windows (Registry key run)
+    Transcription clipboard copy (Auto-copy)
+    Audio feedback (System sounds on start/stop)
+    Translation mode (Native WhisperNet flag)
 ```
 
 ---
@@ -153,11 +153,11 @@ Below are blueprints for how to integrate the highest-priority "To Do" candidate
 
 Based on effort-to-value ratio, we recommend starting with one of the following bundles:
 
-1. **Bundle A: Quick Wins & Table Stakes (Free/Core)**
-   - *Translation Mode* (uses native Whisper translation flag)
-   - *Auto-Copy to Clipboard*
-   - *Audio Feedback (Sound Cues)*
-   - *Startup with Windows*
+1. ~~**Bundle A: Quick Wins & Table Stakes (Free/Core)**~~ ✅ **Completed**
+   - *Translation Mode* ✅
+   - *Auto-Copy to Clipboard* ✅
+   - *Audio Feedback (Sound Cues)* ✅
+   - *Startup with Windows* ✅
 
 2. **Bundle B: Performance & UX (Unique / Spec Features)**
    - *GPU Benchmark Mode* (already partially planned in `SPEC.md`)
