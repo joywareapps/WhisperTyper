@@ -366,6 +366,10 @@
                     <StackPanel Grid.Column="1" Margin="8,0,0,0">
                         <TextBlock Text="Hold-to-Record Hotkey" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" Foreground="#D1CFCF"/>
                         <ComboBox x:Name="ComboHotkey" SelectionChanged="ComboHotkey_SelectionChanged"/>
+                        <TextBlock x:Name="TxtHotkeyWarning"
+                                   Text="⚠ Live-typing disabled for this shortcut — text types on release only."
+                                   FontSize="9" Foreground="#F59E0B" TextWrapping="Wrap"
+                                   Margin="0,4,0,0" Visibility="Collapsed"/>
                     </StackPanel>
                 </Grid>
 

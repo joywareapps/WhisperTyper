@@ -70,7 +70,8 @@ namespace WhisperTyper
             {
                 string preview = text.Length > 60 ? text[..57] + "..." : text;
                 TxtSubStatus.Text = $"🎙 \"{preview}\"";
-                KeyboardSimulator.SimulateTypeString(text);
+                if (IsPartialTypingAllowed())
+                    KeyboardSimulator.SimulateTypeString(text);
             });
 
             // Set up events from keyboard hook
@@ -545,6 +546,17 @@ namespace WhisperTyper
             });
         }
 
+        private bool IsPartialTypingAllowed()
+        {
+            if (_keyboardHook.ModifierVirtualCode != 0) return false;
+            int k = _keyboardHook.HotkeyVirtualCode;
+            // Modifier keys held as primary hotkey also interfere with SendInput
+            return k is not (0x11 or 0xA2 or 0xA3   // Ctrl variants
+                           or 0x12 or 0xA4 or 0xA5   // Alt variants
+                           or 0x10 or 0xA0 or 0xA1   // Shift variants
+                           or 0x5B or 0x5C);          // Win L/R
+        }
+
         private void ComboHotkey_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (ComboHotkey.SelectedItem is HotkeyOption opt)
@@ -554,6 +566,10 @@ namespace WhisperTyper
                 _keyboardHook.SwallowHotkey       = opt.Swallow;
 
                 LogMessage($"Hotkey changed to: {opt.Label}");
+
+                TxtHotkeyWarning.Visibility = IsPartialTypingAllowed()
+                    ? System.Windows.Visibility.Collapsed
+                    : System.Windows.Visibility.Visible;
 
                 if (_controller?.LoadState == ModelLoadState.Loaded)
                     TxtSubStatus.Text = $"Hold {opt.Label} to start typing speech";
