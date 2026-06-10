@@ -482,6 +482,7 @@
                             <TextBlock Text="Custom Dictionary" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </Expander.Header>
                         <StackPanel Margin="0,8,0,4">
+                            <!-- ... existing content ... -->
                             <!-- Column headers -->
                             <Grid Margin="0,0,0,4">
                                 <Grid.ColumnDefinitions>
@@ -540,6 +541,56 @@
                             <Button Content="+ Add Entry" HorizontalAlignment="Left" Margin="0,8,0,0"
                                     Style="{StaticResource SecondaryButton}" Height="26" Padding="12,0"
                                     Click="AddDictEntry_Click"/>
+                        </StackPanel>
+                    </Expander>
+                </Border>
+
+                <!-- App Profiles -->
+                <Border Background="#161127" BorderBrush="#3B2A66" BorderThickness="1" CornerRadius="6" Margin="0,8,0,0">
+                    <Expander x:Name="ExpanderProfiles" Foreground="#D1CFCF" Padding="10,8">
+                        <Expander.Header>
+                            <TextBlock Text="App Profiles (Auto-switching)" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </Expander.Header>
+                        <StackPanel Margin="0,8,0,4">
+                            <TextBlock Text="Profiles allow different languages/rules for different apps." FontSize="10" Foreground="#9E9AA8" Margin="0,0,0,8"/>
+                            
+                            <ItemsControl x:Name="ProfilesList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#1E1A30" BorderBrush="#3B2A66" BorderThickness="1" CornerRadius="4" Margin="0,2" Padding="8,6">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" FontSize="11" Foreground="#FFFFFF" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding TargetProcess, StringFormat='Target: {0}'}" FontSize="9" Foreground="#9E9AA8"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                    <Button Content="📥" Tag="{Binding}"
+                                                            Style="{StaticResource SecondaryButton}" Height="24" Padding="6,0"
+                                                            FontSize="12" Click="ApplyProfileToUI_Click" ToolTip="Load settings into UI for editing"/>
+                                                    <Button Content="×" Tag="{Binding}" Margin="4,0,0,0"
+                                                            Style="{StaticResource SecondaryButton}" Height="24" Padding="6,0"
+                                                            FontSize="12" Click="RemoveProfile_Click" ToolTip="Delete profile"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button x:Name="BtnCloneProfile" Content="Clone Current Settings for Active App" 
+                                        HorizontalAlignment="Left"
+                                        Style="{StaticResource ModernButton}" Height="28" Padding="12,0"
+                                        Click="BtnCloneProfile_Click"/>
+                                <Button x:Name="BtnCancelEdit" Content="Cancel Edit" 
+                                        Visibility="Collapsed" Margin="8,0,0,0"
+                                        Style="{StaticResource SecondaryButton}" Height="28" Padding="12,0"
+                                        Click="BtnCancelEdit_Click"/>
+                            </StackPanel>
                         </StackPanel>
                     </Expander>
                 </Border>

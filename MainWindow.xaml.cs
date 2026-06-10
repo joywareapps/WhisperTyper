@@ -15,6 +15,8 @@ namespace WhisperTyper
     {
         private WhisperController _controller;
         private GlobalKeyboardHook _keyboardHook;
+        private ProfileService _profileService;
+        private Profile? _editingProfile;
         private System.Windows.Forms.NotifyIcon? _notifyIcon;
         private bool _isClosing = false;
         private string? _detectedDefaultModel;
@@ -25,20 +27,6 @@ namespace WhisperTyper
         private static readonly string _settingsPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                          "WhisperTyper", "settings.json");
-
-        private record AppSettings(
-            string ModelPath = "",
-            string GpuAdapter = "",
-            string Language = "Auto-Detect",
-            int HotkeyIndex = 0,
-            bool FillerWordRemovalEnabled = true,
-            string[]? FillerWords = null,
-            string ModelsDirectory = "",
-            bool FixPeriodSpacing = true,
-            bool StartWithWindows = false,
-            bool AlwaysCopyToClipboard = false,
-            bool TranslateToEnglish = false,
-            bool AudioFeedbackEnabled = false);
 
         private record HotkeyOption(string Label, int KeyCode, int ModifierCode = 0, bool Swallow = true);
 
@@ -59,6 +47,7 @@ namespace WhisperTyper
 
             _controller = new WhisperController();
             _keyboardHook = new GlobalKeyboardHook();
+            _profileService = new ProfileService();
 
             // Set up events from controller
             _controller.LoadStateChanged += OnModelLoadStateChanged;
@@ -157,6 +146,7 @@ namespace WhisperTyper
             InitDictionary(saved);
             InitHistory();
             InitModelManager(saved);
+            InitProfiles();
         }
 
         private void MainWindow_Closed(object? sender, EventArgs e)
@@ -498,6 +488,21 @@ namespace WhisperTyper
                         return;
                     }
 
+                    // Detect active window and apply profile
+                    string activeProcess = WindowDetectionUtils.GetActiveProcessName();
+                    LogMessage($"Active process: {activeProcess}");
+                    var profile = _profileService.GetProfileForProcess(activeProcess);
+                    if (profile != null)
+                    {
+                        LogMessage($"Applying profile: {profile.Name}");
+                    }
+                    
+                    eLanguage? defaultLang = null;
+                    if (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> selectedLang && selectedLang.Key != "Auto-Detect")
+                        defaultLang = selectedLang.Value;
+
+                    _controller.ApplyProfile(profile, defaultLang, ChkTranslate.IsChecked == true, ChkFillerEnabled.IsChecked == true);
+
                     if (ComboMic.SelectedItem is CaptureDeviceId mic)
                     {
                         LogMessage("Hotkey pressed: Starting capture on: " + mic.displayName);
@@ -515,9 +520,148 @@ namespace WhisperTyper
                     // Stop recording asynchronously
                     Task.Run(async () => {
                         await _controller.StopRecordingAsync();
+                        // Reset to default settings after recording
+                        Dispatcher.Invoke(() => {
+                            eLanguage? defaultLang = null;
+                            if (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> selectedLang && selectedLang.Key != "Auto-Detect")
+                                defaultLang = selectedLang.Value;
+                            _controller.ApplyProfile(null, defaultLang, ChkTranslate.IsChecked == true, ChkFillerEnabled.IsChecked == true);
+                        });
                     });
                 }
             });
+        }
+
+        // ── Profiles ────────────────────────────────────────────────────────
+
+        private void InitProfiles()
+        {
+            RefreshProfilesList();
+        }
+
+        private void RefreshProfilesList()
+        {
+            ProfilesList.ItemsSource = null;
+            ProfilesList.ItemsSource = _profileService.GetProfiles();
+        }
+
+        private async void BtnCloneProfile_Click(object sender, RoutedEventArgs e)
+        {
+            BtnCloneProfile.IsEnabled = false;
+            string originalSubStatus = TxtSubStatus.Text;
+            string originalButtonContent = BtnCloneProfile.Content.ToString()!;
+
+            try
+            {
+                for (int i = 3; i > 0; i--)
+                {
+                    string activeProcess = WindowDetectionUtils.GetActiveProcessName();
+                    var existing = _profileService.GetProfileForProcess(activeProcess);
+                    string action = (existing != null && activeProcess != "WhisperTyper") ? "Updating" : "Cloning";
+                    
+                    BtnCloneProfile.Content = (existing != null && activeProcess != "WhisperTyper") 
+                        ? $"Update Profile for {activeProcess}..." 
+                        : originalButtonContent;
+
+                    TxtSubStatus.Text = $"Switch to the target app... {action} in {i}...";
+                    LogMessage($"{action} profile in {i}...");
+                    await Task.Delay(1000);
+                }
+
+                string finalActiveProcess = WindowDetectionUtils.GetActiveProcessName();
+                if (finalActiveProcess == "Unknown" || finalActiveProcess == "WhisperTyper")
+                {
+                    System.Windows.MessageBox.Show("Could not detect a target application. Please ensure you switched to the app you want to clone settings for.", "WhisperTyper", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                string profileName = $"{finalActiveProcess} Profile";
+                var currentSettings = new AppSettings(
+                    Language: (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> l) ? l.Key : "Auto-Detect",
+                    FillerWordRemovalEnabled: ChkFillerEnabled.IsChecked == true,
+                    TranslateToEnglish: ChkTranslate.IsChecked == true
+                );
+
+                _profileService.CreateProfileFromCurrent(profileName, finalActiveProcess, currentSettings, _controller.Dictionary.Entries);
+                LogMessage($"Created/Updated profile for: {finalActiveProcess}");
+                RefreshProfilesList();
+                ExpanderProfiles.IsExpanded = true;
+                TxtSubStatus.Text = $"Profile saved for {finalActiveProcess}!";
+                await Task.Delay(2000);
+            }
+            finally
+            {
+                TxtSubStatus.Text = originalSubStatus;
+                BtnCloneProfile.Content = originalButtonContent;
+                BtnCloneProfile.IsEnabled = true;
+            }
+        }
+
+        private void ApplyProfileToUI_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is Profile profile)
+            {
+                // Restore Language
+                string langKey = profile.Language?.ToString() ?? "Auto-Detect";
+                if (profile.Language.HasValue && (int)profile.Language.Value == 0) langKey = "Auto-Detect";
+
+                for (int i = 0; i < ComboLanguage.Items.Count; i++)
+                {
+                    if (ComboLanguage.Items[i] is KeyValuePair<string, eLanguage> kv && kv.Key == langKey)
+                    {
+                        ComboLanguage.SelectedIndex = i;
+                        break;
+                    }
+                }
+
+                // Restore Translate
+                ChkTranslate.IsChecked = profile.TranslateToEnglish ?? false;
+
+                // Restore Filler
+                ChkFillerEnabled.IsChecked = profile.FillerWordRemovalEnabled ?? true;
+
+                // Restore Dictionary
+                if (profile.CustomDictionaryEntries != null)
+                {
+                    _controller.Dictionary.Entries.Clear();
+                    foreach (var entry in profile.CustomDictionaryEntries)
+                        _controller.Dictionary.Entries.Add(new DictionaryEntry { Trigger = entry.Trigger, Replacement = entry.Replacement });
+                    
+                    _controller.Dictionary.Save();
+                    _controller.Dictionary.Compile();
+                    DictItemsControl.Items.Refresh();
+                }
+
+                LogMessage($"Loaded settings from profile: {profile.Name}");
+                _editingProfile = profile;
+                BtnCloneProfile.Content = $"Save Changes to {profile.Name}";
+                BtnCancelEdit.Visibility = Visibility.Visible;
+
+                System.Windows.MessageBox.Show($"Settings from '{profile.Name}' have been applied to the main UI. You can now tweak them and click the Save button above.", "Profile Loaded", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private void BtnCancelEdit_Click(object sender, RoutedEventArgs e)
+        {
+            ResetEditState();
+        }
+
+        private void ResetEditState()
+        {
+            _editingProfile = null;
+            BtnCloneProfile.Content = "Clone Current Settings for Active App";
+            BtnCancelEdit.Visibility = Visibility.Collapsed;
+            LogMessage("Edit cancelled. Back to normal mode.");
+        }
+
+        private void RemoveProfile_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is Profile profile)
+            {
+                _profileService.RemoveProfile(profile.Name);
+                RefreshProfilesList();
+                LogMessage($"Removed profile: {profile.Name}");
+            }
         }
 
         private void OnTranscriptionCompleted(string transcription)

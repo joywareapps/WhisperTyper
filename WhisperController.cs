@@ -137,10 +137,33 @@ namespace WhisperTyper
         {
             if (_context == null) return;
             // Only set language when a specific one is chosen; leaving it unset lets Whisper auto-detect.
-            if (language.HasValue)
+            // We specifically avoid setting it to 0 (Auto-Detect in UI) as it causes "unknown language ''" crash.
+            if (language.HasValue && (int)language.Value != 0)
                 _context.parameters.language = language.Value;
+
             _context.parameters.setFlag(eFullParamsFlags.Translate, translate);
             _context.parameters.cpuThreads = Math.Max(1, Environment.ProcessorCount / 2);
+        }
+
+        public void ApplyProfile(Profile? profile, eLanguage? defaultLanguage, bool defaultTranslate, bool defaultFillerEnabled)
+        {
+            if (profile != null)
+            {
+                ConfigureContext(profile.Language ?? defaultLanguage, profile.TranslateToEnglish ?? defaultTranslate);
+                FillerWordFilter.IsEnabled = profile.FillerWordRemovalEnabled ?? defaultFillerEnabled;
+                if (profile.CustomDictionaryEntries != null)
+                {
+                    Dictionary.Entries.Clear();
+                    Dictionary.Entries.AddRange(profile.CustomDictionaryEntries);
+                    Dictionary.Compile();
+                }
+            }
+            else
+            {
+                ConfigureContext(defaultLanguage, defaultTranslate);
+                FillerWordFilter.IsEnabled = defaultFillerEnabled;
+                Dictionary.Load(); // Reload default dictionary
+            }
         }
 
         public void StartRecording(CaptureDeviceId micDevice)
