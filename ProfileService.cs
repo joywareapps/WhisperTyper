@@ -48,11 +48,21 @@ namespace WhisperTyper
             }
         }
 
-        public List<Profile> GetProfiles() => _profiles;
+        public List<Profile> GetProfiles()
+        {
+            if (!_profiles.Any(p => p.Name == "Default (All Other Apps)"))
+            {
+                _profiles.Insert(0, new Profile { Name = "Default (All Other Apps)", TargetProcess = "*" });
+            }
+            return _profiles;
+        }
 
         public Profile? GetProfileForProcess(string processName)
         {
-            return _profiles.FirstOrDefault(p => string.Equals(p.TargetProcess, processName, StringComparison.OrdinalIgnoreCase));
+            var appProfile = _profiles.FirstOrDefault(p => string.Equals(p.TargetProcess, processName, StringComparison.OrdinalIgnoreCase));
+            if (appProfile != null) return appProfile;
+            
+            return _profiles.FirstOrDefault(p => p.TargetProcess == "*");
         }
 
         public void AddOrUpdateProfile(Profile profile)
@@ -87,7 +97,15 @@ namespace WhisperTyper
                 Language = langOverride,
                 TranslateToEnglish = currentSettings.TranslateToEnglish,
                 FillerWordRemovalEnabled = currentSettings.FillerWordRemovalEnabled,
-                CustomDictionaryEntries = new List<DictionaryEntry>(dictionaryEntries)
+                CustomDictionaryEntries = new List<DictionaryEntry>(dictionaryEntries),
+                PostProcessing = currentSettings.PostProcessing == null ? null : new PostProcessingSettings
+                {
+                    Enabled = currentSettings.PostProcessing.Enabled,
+                    Provider = currentSettings.PostProcessing.Provider,
+                    Endpoint = currentSettings.PostProcessing.Endpoint,
+                    Model = currentSettings.PostProcessing.Model,
+                    Prompt = currentSettings.PostProcessing.Prompt
+                }
             };
             AddOrUpdateProfile(profile);
             return profile;

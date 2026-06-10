@@ -14,6 +14,7 @@ namespace WhisperTyper
         public bool? TranslateToEnglish { get; set; }
         public bool? FillerWordRemovalEnabled { get; set; }
         public List<DictionaryEntry>? CustomDictionaryEntries { get; set; }
+        public PostProcessingSettings? PostProcessing { get; set; }
         
         public Profile Clone()
         {
@@ -24,7 +25,15 @@ namespace WhisperTyper
                 Language = this.Language,
                 TranslateToEnglish = this.TranslateToEnglish,
                 FillerWordRemovalEnabled = this.FillerWordRemovalEnabled,
-                CustomDictionaryEntries = this.CustomDictionaryEntries == null ? null : new List<DictionaryEntry>(this.CustomDictionaryEntries)
+                CustomDictionaryEntries = this.CustomDictionaryEntries == null ? null : new List<DictionaryEntry>(this.CustomDictionaryEntries),
+                PostProcessing = this.PostProcessing == null ? null : new PostProcessingSettings 
+                { 
+                    Enabled = this.PostProcessing.Enabled,
+                    Provider = this.PostProcessing.Provider,
+                    Endpoint = this.PostProcessing.Endpoint,
+                    Model = this.PostProcessing.Model,
+                    Prompt = this.PostProcessing.Prompt
+                }
             };
         }
     }

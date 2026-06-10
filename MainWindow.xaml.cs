@@ -17,6 +17,9 @@ namespace WhisperTyper
         private GlobalKeyboardHook _keyboardHook;
         private ProfileService _profileService;
         private Profile? _editingProfile;
+        private LlmService _llmService = new();
+        private PostProcessingSettings _postProcessing = new();
+        private PostProcessingSettings? _activeSessionLlm;
         private System.Windows.Forms.NotifyIcon? _notifyIcon;
         private bool _isClosing = false;
         private string? _detectedDefaultModel;
@@ -59,7 +62,12 @@ namespace WhisperTyper
             {
                 string preview = text.Length > 60 ? text[..57] + "..." : text;
                 TxtSubStatus.Text = $"🎙 \"{preview}\"";
-                if (IsPartialTypingAllowed())
+
+                // If LLM post-processing is enabled, we MUST NOT type partial results
+                // as we need to wait for the final text to send to the LLM.
+                bool llmEnabled = _activeSessionLlm?.Enabled ?? _postProcessing.Enabled;
+
+                if (IsPartialTypingAllowed() && !llmEnabled)
                     KeyboardSimulator.SimulateTypeString(text);
             });
 
@@ -147,6 +155,20 @@ namespace WhisperTyper
             InitHistory();
             InitModelManager(saved);
             InitProfiles();
+            InitPostProcessing(saved);
+        }
+
+        private void InitPostProcessing(AppSettings saved)
+        {
+            _postProcessing = saved.PostProcessing ?? new PostProcessingSettings();
+            UpdateLlmStatusUI();
+        }
+
+        private void UpdateLlmStatusUI()
+        {
+            TxtLlmStatus.Text = _postProcessing.Enabled 
+                ? $"Enabled ({_postProcessing.Provider}: {_postProcessing.Model})" 
+                : "Disabled";
         }
 
         private void MainWindow_Closed(object? sender, EventArgs e)
@@ -175,7 +197,8 @@ namespace WhisperTyper
                     StartWithWindows: ChkStartup.IsChecked == true,
                     AlwaysCopyToClipboard: ChkCopyToClipboard.IsChecked == true,
                     TranslateToEnglish: ChkTranslate.IsChecked == true,
-                    AudioFeedbackEnabled: ChkAudioFeedback.IsChecked == true);
+                    AudioFeedbackEnabled: ChkAudioFeedback.IsChecked == true,
+                    PostProcessing: _postProcessing);
                 File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s));
             }
             catch { }
@@ -186,7 +209,10 @@ namespace WhisperTyper
             try
             {
                 if (File.Exists(_settingsPath))
-                    return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath)) ?? new AppSettings();
+                {
+                    var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath));
+                    if (settings != null) return settings;
+                }
             }
             catch { }
             return new AppSettings();
@@ -294,11 +320,18 @@ namespace WhisperTyper
             // Add Auto-Detect as index 0
             ComboLanguage.Items.Add(new KeyValuePair<string, eLanguage>("Auto-Detect", (eLanguage)0));
 
-            // Add standard supported languages from enum
-            foreach (eLanguage lang in Enum.GetValues(typeof(eLanguage)))
+            // Get standard supported languages and sort them alphabetically
+            var languages = Enum.GetValues(typeof(eLanguage))
+                .Cast<eLanguage>()
+                .Select(lang => new KeyValuePair<string, eLanguage>(lang.ToString(), lang))
+                .OrderBy(kv => kv.Key)
+                .ToList();
+
+            foreach (var langKvp in languages)
             {
-                ComboLanguage.Items.Add(new KeyValuePair<string, eLanguage>(lang.ToString(), lang));
+                ComboLanguage.Items.Add(langKvp);
             }
+
             ComboLanguage.DisplayMemberPath = "Key";
             ComboLanguage.SelectedIndex = 0; // Default: Auto-Detect
         }
@@ -492,6 +525,7 @@ namespace WhisperTyper
                     string activeProcess = WindowDetectionUtils.GetActiveProcessName();
                     LogMessage($"Active process: {activeProcess}");
                     var profile = _profileService.GetProfileForProcess(activeProcess);
+                    
                     if (profile != null)
                     {
                         LogMessage($"Applying profile: {profile.Name}");
@@ -501,7 +535,12 @@ namespace WhisperTyper
                     if (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> selectedLang && selectedLang.Key != "Auto-Detect")
                         defaultLang = selectedLang.Value;
 
+                    // If we have a profile (including Default), apply it. 
+                    // ApplyProfile will reset to base settings if profile is null, which won't happen now for Default.
                     _controller.ApplyProfile(profile, defaultLang, ChkTranslate.IsChecked == true, ChkFillerEnabled.IsChecked == true);
+                    
+                    // Capture LLM settings for this recording session
+                    _activeSessionLlm = profile?.PostProcessing ?? _postProcessing;
 
                     if (ComboMic.SelectedItem is CaptureDeviceId mic)
                     {
@@ -519,7 +558,8 @@ namespace WhisperTyper
                     LogMessage("Hotkey released: Stopping capture.");
                     // Stop recording asynchronously
                     Task.Run(async () => {
-                        await _controller.StopRecordingAsync();
+                        bool llmEnabled = _activeSessionLlm?.Enabled ?? _postProcessing.Enabled;
+                        await _controller.StopRecordingAsync(llmEnabled);
                         // Reset to default settings after recording
                         Dispatcher.Invoke(() => {
                             eLanguage? defaultLang = null;
@@ -547,6 +587,26 @@ namespace WhisperTyper
 
         private async void BtnCloneProfile_Click(object sender, RoutedEventArgs e)
         {
+            if (_editingProfile != null)
+            {
+                // SAVE MODE: Just save to the profile we are currently editing
+                var saveSettings = new AppSettings(
+                    Language: (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> l) ? l.Key : "Auto-Detect",
+                    FillerWordRemovalEnabled: ChkFillerEnabled.IsChecked == true,
+                    TranslateToEnglish: ChkTranslate.IsChecked == true,
+                    PostProcessing: _postProcessing
+                );
+
+                _profileService.CreateProfileFromCurrent(_editingProfile.Name, _editingProfile.TargetProcess, saveSettings, _controller.Dictionary.Entries);
+                LogMessage($"Saved changes to profile: {_editingProfile.Name}");
+                TxtSubStatus.Text = $"Changes saved to {_editingProfile.Name}!";
+                RefreshProfilesList();
+                ResetEditState();
+                await Task.Delay(2000);
+                return;
+            }
+
+            // CLONE MODE: Standard countdown and window detection for NEW profiles
             BtnCloneProfile.IsEnabled = false;
             string originalSubStatus = TxtSubStatus.Text;
             string originalButtonContent = BtnCloneProfile.Content.ToString()!;
@@ -557,9 +617,9 @@ namespace WhisperTyper
                 {
                     string activeProcess = WindowDetectionUtils.GetActiveProcessName();
                     var existing = _profileService.GetProfileForProcess(activeProcess);
-                    string action = (existing != null && activeProcess != "WhisperTyper") ? "Updating" : "Cloning";
+                    string action = (existing != null && activeProcess != "WhisperTyper" && existing.TargetProcess != "*") ? "Updating" : "Cloning";
                     
-                    BtnCloneProfile.Content = (existing != null && activeProcess != "WhisperTyper") 
+                    BtnCloneProfile.Content = (existing != null && activeProcess != "WhisperTyper" && existing.TargetProcess != "*") 
                         ? $"Update Profile for {activeProcess}..." 
                         : originalButtonContent;
 
@@ -579,7 +639,8 @@ namespace WhisperTyper
                 var currentSettings = new AppSettings(
                     Language: (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> l) ? l.Key : "Auto-Detect",
                     FillerWordRemovalEnabled: ChkFillerEnabled.IsChecked == true,
-                    TranslateToEnglish: ChkTranslate.IsChecked == true
+                    TranslateToEnglish: ChkTranslate.IsChecked == true,
+                    PostProcessing: _postProcessing
                 );
 
                 _profileService.CreateProfileFromCurrent(profileName, finalActiveProcess, currentSettings, _controller.Dictionary.Entries);
@@ -632,6 +693,20 @@ namespace WhisperTyper
                     DictItemsControl.Items.Refresh();
                 }
 
+                // Restore Post-Processing
+                if (profile.PostProcessing != null)
+                {
+                    _postProcessing = new PostProcessingSettings
+                    {
+                        Enabled = profile.PostProcessing.Enabled,
+                        Provider = profile.PostProcessing.Provider,
+                        Endpoint = profile.PostProcessing.Endpoint,
+                        Model = profile.PostProcessing.Model,
+                        Prompt = profile.PostProcessing.Prompt
+                    };
+                    UpdateLlmStatusUI();
+                }
+
                 LogMessage($"Loaded settings from profile: {profile.Name}");
                 _editingProfile = profile;
                 BtnCloneProfile.Content = $"Save Changes to {profile.Name}";
@@ -658,26 +733,68 @@ namespace WhisperTyper
         {
             if (sender is System.Windows.Controls.Button btn && btn.Tag is Profile profile)
             {
+                if (profile.TargetProcess == "*")
+                {
+                    System.Windows.MessageBox.Show("The Default profile cannot be deleted.", "WhisperTyper", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
                 _profileService.RemoveProfile(profile.Name);
                 RefreshProfilesList();
                 LogMessage($"Removed profile: {profile.Name}");
             }
         }
 
+        private void BtnConfigureLlm_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new PostProcessingWindow(_postProcessing);
+            dlg.Owner = this;
+            if (dlg.ShowDialog() == true)
+            {
+                _postProcessing = dlg.Settings;
+                UpdateLlmStatusUI();
+                LogMessage(_postProcessing.Enabled ? "LLM Post-Processing enabled." : "LLM Post-Processing disabled.");
+                SaveSettings();
+
+                // Update hotkey warning if LLM status changed
+                TxtHotkeyWarning.Visibility = IsPartialTypingAllowed()
+                    ? System.Windows.Visibility.Collapsed
+                    : System.Windows.Visibility.Visible;
+            }
+        }
+
         private void OnTranscriptionCompleted(string transcription)
         {
-            Dispatcher.Invoke(() =>
-            {
-                LogMessage($"Transcribed: \"{transcription}\"");
-                // Simulate typing at the active cursor
-                KeyboardSimulator.SimulateTypeString(transcription);
+            Task.Run(async () => {
+                string finalOutput = transcription;
+                var llmSettings = _activeSessionLlm ?? _postProcessing;
 
-                // Auto-copy to clipboard if enabled
-                if (ChkCopyToClipboard.IsChecked == true)
+                if (llmSettings.Enabled)
                 {
-                    try { System.Windows.Clipboard.SetText(transcription); }
-                    catch { /* clipboard may be locked */ }
+                    Dispatcher.Invoke(() => TxtSubStatus.Text = "✨ LLM is processing...");
+                    finalOutput = await _llmService.ProcessTextAsync(transcription, llmSettings);
                 }
+
+                Dispatcher.Invoke(() =>
+                {
+                    LogMessage($"Final Output: \"{finalOutput}\"");
+                    // Simulate typing at the active cursor
+                    KeyboardSimulator.SimulateTypeString(finalOutput);
+
+                    // Auto-copy to clipboard if enabled
+                    if (ChkCopyToClipboard.IsChecked == true)
+                    {
+                        try { System.Windows.Clipboard.SetText(finalOutput); }
+                        catch { /* clipboard may be locked */ }
+                    }
+
+                    // Restore sub-status if it was changed
+                    if (llmSettings.Enabled)
+                    {
+                        var opt = ComboHotkey.SelectedItem as HotkeyOption;
+                        TxtSubStatus.Text = $"Hold {opt?.Label ?? "hotkey"} to start typing speech";
+                    }
+                });
             });
         }
 

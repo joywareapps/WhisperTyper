@@ -14,5 +14,6 @@ namespace WhisperTyper
         bool StartWithWindows = false,
         bool AlwaysCopyToClipboard = false,
         bool TranslateToEnglish = false,
-        bool AudioFeedbackEnabled = false);
+        bool AudioFeedbackEnabled = false,
+        PostProcessingSettings? PostProcessing = null);
 }

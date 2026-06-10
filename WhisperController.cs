@@ -206,7 +206,7 @@ namespace WhisperTyper
             }
         }
 
-        public async Task StopRecordingAsync()
+        public async Task StopRecordingAsync(bool returnFullText = false)
         {
             if (CurrentState != RecordingState.Recording) return;
 
@@ -247,7 +247,8 @@ namespace WhisperTyper
                     });
 
                     // Only type what wasn't already streamed by partial transcriptions.
-                    string toType = StripTypedPrefix(transcription, _partialTypedText);
+                    // If returnFullText is true (e.g. for LLM), we send the whole thing.
+                    string toType = returnFullText ? transcription : StripTypedPrefix(transcription, _partialTypedText);
                     _partialTypedText = "";
 
                     string snippet = transcription.Length > 40 ? transcription[..37] + "..." : transcription;
