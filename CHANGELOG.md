@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7.0 — 2026-06-10
+
+### New
+- **App Profiles (Auto-switching)** — Automatically change language, translation, and custom rules based on the focused window. Includes a "Clone Current Settings" feature with a 3-second countdown to easily create profiles for any application.
+- **LLM Post-Processing** — Connect to local LLMs via **Ollama** or **LM Studio**. Refine, translate, or reformat your transcription using custom prompts (e.g., "Translate to German" or "Fix grammar") before it's typed.
+- **Default Profile** — A permanent "Default (All Other Apps)" profile to manage global settings using the same intuitive Load/Save workflow as app profiles.
+
+### Fixed
+- **"Unknown language ''" crash** — Fixed a regression where selecting "Auto-Detect" language would crash the Whisper engine.
+- **Transcription Truncation** — Resolved an issue where long speech segments were truncated when using LLM post-processing.
+- **Ambiguous UI references** — Fixed compilation errors related to ambiguous class names in the codebase.
+- **Sorted Language List** — The target language dropdown is now sorted alphabetically for easier navigation.
+
+---
+
 ## v0.6.1 — 2026-06-05
 
 ### Fixed
