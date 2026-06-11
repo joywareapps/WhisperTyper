@@ -39,7 +39,7 @@ jobs:
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.5
         with:
           path: WhisperTyper.iss
-          options: /DSourceDir=..\publish
+          options: /DSourceDir=publish
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

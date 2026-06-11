@@ -3,7 +3,7 @@
 ; Expects publish output in ..\publish\  (or override with /DSourceDir=...)
 
 #ifndef SourceDir
-  #define SourceDir "..\publish"
+  #define SourceDir "publish"
 #endif
 
 #define AppName       "WhisperTyper"
@@ -31,7 +31,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputBaseFilename=WhisperTyper-setup
-SetupIconFile=..\App.ico
+SetupIconFile=App.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
