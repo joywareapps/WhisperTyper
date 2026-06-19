@@ -28,7 +28,7 @@ jobs:
             -r win-x64 `
             --self-contained true `
             -o ./publish `
-            -p:PublishSingleFile=false `
+            -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true
 
       - name: Create portable ZIP
