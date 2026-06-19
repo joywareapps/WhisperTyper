@@ -63,7 +63,8 @@
                     
                     <TextBlock Text="LLM Provider" FontSize="11" Foreground="#9E9AA8" Margin="0,0,0,5"/>
                     <ComboBox x:Name="ComboProvider" Height="32" Margin="0,0,0,15" SelectionChanged="ComboProvider_SelectionChanged">
-                        <ComboBoxItem Content="Ollama" IsSelected="True"/>
+                        <ComboBoxItem Content="Use Default"/>
+                        <ComboBoxItem Content="Ollama"/>
                         <ComboBoxItem Content="LM Studio (OpenAI Compatible)"/>
                     </ComboBox>
 

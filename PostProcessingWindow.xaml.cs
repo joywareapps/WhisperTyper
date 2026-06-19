@@ -20,7 +20,7 @@ namespace WhisperTyper
             ChkEnabled.IsChecked = Settings.Enabled;
             ComboProvider.SelectedIndex = (int)Settings.Provider;
             TxtEndpoint.Text = Settings.Endpoint;
-            TxtModel.Text = Settings.Model;
+            TxtModel.Text = string.IsNullOrEmpty(Settings.Model) ? "Default" : Settings.Model;
             TxtPrompt.Text = Settings.Prompt;
         }
 
@@ -29,7 +29,7 @@ namespace WhisperTyper
             Settings.Enabled = ChkEnabled.IsChecked == true;
             Settings.Provider = (LlmProvider)ComboProvider.SelectedIndex;
             Settings.Endpoint = TxtEndpoint.Text;
-            Settings.Model = TxtModel.Text;
+            Settings.Model = TxtModel.Text == "Default" ? "" : TxtModel.Text;
             Settings.Prompt = TxtPrompt.Text;
             
             DialogResult = true;
@@ -46,12 +46,12 @@ namespace WhisperTyper
         {
             if (TxtEndpoint == null) return;
 
-            if (ComboProvider.SelectedIndex == 0) // Ollama
+            if (ComboProvider.SelectedIndex == 1) // Ollama
             {
                 if (string.IsNullOrEmpty(TxtEndpoint.Text) || TxtEndpoint.Text.Contains("/v1/chat/completions"))
                     TxtEndpoint.Text = "http://localhost:11434/api/generate";
             }
-            else // LM Studio
+            else if (ComboProvider.SelectedIndex == 2) // LM Studio
             {
                 if (string.IsNullOrEmpty(TxtEndpoint.Text) || TxtEndpoint.Text.Contains("/api/generate"))
                     TxtEndpoint.Text = "http://localhost:1234/v1/chat/completions";

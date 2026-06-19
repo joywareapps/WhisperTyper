@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace WhisperTyper
 {
-    public enum LlmProvider { Ollama, LmStudio }
+    public enum LlmProvider { Default, Ollama, LmStudio }
 
     public class PostProcessingSettings
     {
@@ -16,6 +16,39 @@ namespace WhisperTyper
         public string Endpoint { get; set; } = "http://localhost:11434/api/generate";
         public string Model { get; set; } = "llama3";
         public string Prompt { get; set; } = "You are a helpful assistant. Please reformat, correct, and polish the following transcribed text while keeping the original meaning. Output ONLY the polished text without any preamble or conversational filler. Here is the text:\n\n{text}";
+
+        public PostProcessingSettings Clone()
+        {
+            return new PostProcessingSettings
+            {
+                Enabled = this.Enabled,
+                Provider = this.Provider,
+                Endpoint = this.Endpoint,
+                Model = this.Model,
+                Prompt = this.Prompt
+            };
+        }
+
+        public PostProcessingSettings Resolve(PostProcessingSettings? defaults)
+        {
+            if (defaults == null) return this;
+
+            var result = this.Clone();
+            if (result.Provider == LlmProvider.Default)
+            {
+                result.Provider = defaults.Provider;
+                result.Endpoint = defaults.Endpoint;
+            }
+            if (string.IsNullOrWhiteSpace(result.Model) || result.Model == "Default")
+            {
+                result.Model = defaults.Model;
+            }
+            if (string.IsNullOrWhiteSpace(result.Prompt))
+            {
+                result.Prompt = defaults.Prompt;
+            }
+            return result;
+        }
     }
 
     public class LlmService
@@ -34,9 +67,14 @@ namespace WhisperTyper
                 {
                     return await ProcessOllamaAsync(prompt, settings);
                 }
-                else
+                else if (settings.Provider == LlmProvider.LmStudio)
                 {
                     return await ProcessLmStudioAsync(prompt, settings);
+                }
+                else
+                {
+                    // Fallback for Default if not resolved
+                    return await ProcessOllamaAsync(prompt, settings);
                 }
             }
             catch (Exception ex)

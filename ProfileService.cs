@@ -98,14 +98,7 @@ namespace WhisperTyper
                 TranslateToEnglish = currentSettings.TranslateToEnglish,
                 FillerWordRemovalEnabled = currentSettings.FillerWordRemovalEnabled,
                 CustomDictionaryEntries = new List<DictionaryEntry>(dictionaryEntries),
-                PostProcessing = currentSettings.PostProcessing == null ? null : new PostProcessingSettings
-                {
-                    Enabled = currentSettings.PostProcessing.Enabled,
-                    Provider = currentSettings.PostProcessing.Provider,
-                    Endpoint = currentSettings.PostProcessing.Endpoint,
-                    Model = currentSettings.PostProcessing.Model,
-                    Prompt = currentSettings.PostProcessing.Prompt
-                }
+                PostProcessing = currentSettings.PostProcessing?.Clone()
             };
             AddOrUpdateProfile(profile);
             return profile;

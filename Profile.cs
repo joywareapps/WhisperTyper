@@ -26,14 +26,7 @@ namespace WhisperTyper
                 TranslateToEnglish = this.TranslateToEnglish,
                 FillerWordRemovalEnabled = this.FillerWordRemovalEnabled,
                 CustomDictionaryEntries = this.CustomDictionaryEntries == null ? null : new List<DictionaryEntry>(this.CustomDictionaryEntries),
-                PostProcessing = this.PostProcessing == null ? null : new PostProcessingSettings 
-                { 
-                    Enabled = this.PostProcessing.Enabled,
-                    Provider = this.PostProcessing.Provider,
-                    Endpoint = this.PostProcessing.Endpoint,
-                    Model = this.PostProcessing.Model,
-                    Prompt = this.PostProcessing.Prompt
-                }
+                PostProcessing = this.PostProcessing?.Clone()
             };
         }
     }
