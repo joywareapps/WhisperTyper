@@ -31,7 +31,7 @@ namespace WhisperTyper
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                          "WhisperTyper", "settings.json");
 
-        private record HotkeyOption(string Label, int KeyCode, int ModifierCode = 0, bool Swallow = true);
+        private HotkeyConfig _currentHotkey = HotkeyConfig.Default;
 
         // Visual brushes for Status states - fully qualified to avoid ambiguity
         private SolidColorBrush _gpuReadyBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xB9, 0x81)); // Emerald Green
@@ -86,7 +86,6 @@ namespace WhisperTyper
         {
             PopulateDevices();
             PopulateLanguages();
-            PopulateHotkeys();
             ScanForModels();
             SetupAnimations();
 
@@ -104,8 +103,7 @@ namespace WhisperTyper
             var saved = LoadSettings();
 
             // Restore hotkey
-            if (saved.HotkeyIndex >= 0 && saved.HotkeyIndex < ComboHotkey.Items.Count)
-                ComboHotkey.SelectedIndex = saved.HotkeyIndex;
+            ApplyHotkey(saved.Hotkey ?? HotkeyConfig.Default);
 
             // Restore GPU adapter
             if (!string.IsNullOrEmpty(saved.GpuAdapter))
@@ -189,7 +187,7 @@ namespace WhisperTyper
                     ModelPath: ComboModelPath.Text,
                     GpuAdapter: ComboGpu.SelectedItem as string ?? "",
                     Language: (ComboLanguage.SelectedItem is KeyValuePair<string, eLanguage> l) ? l.Key : "Auto-Detect",
-                    HotkeyIndex: ComboHotkey.SelectedIndex,
+                    Hotkey: _currentHotkey,
                     FillerWordRemovalEnabled: ChkFillerEnabled.IsChecked == true,
                     FillerWords: [.. _fillerWords],
                     ModelsDirectory: _modelManager?.ModelsDirectory ?? "",
@@ -336,18 +334,30 @@ namespace WhisperTyper
             ComboLanguage.SelectedIndex = 0; // Default: Auto-Detect
         }
 
-        private void PopulateHotkeys()
+        private void ApplyHotkey(HotkeyConfig hotkey)
         {
-            ComboHotkey.Items.Clear();
-            ComboHotkey.Items.Add(new HotkeyOption("Caps Lock (Recommended)", 0x14));
-            ComboHotkey.Items.Add(new HotkeyOption("Scroll Lock",             0x91));
-            ComboHotkey.Items.Add(new HotkeyOption("Left Alt",                0xA4));
-            ComboHotkey.Items.Add(new HotkeyOption("Left Ctrl",               0xA2));
-            ComboHotkey.Items.Add(new HotkeyOption("Ctrl + Win",              0x5B, ModifierCode: 0x11, Swallow: true));
-            ComboHotkey.Items.Add(new HotkeyOption("F9",                      0x78, Swallow: false));
-            ComboHotkey.Items.Add(new HotkeyOption("F10",                     0x79, Swallow: false));
-            ComboHotkey.DisplayMemberPath = "Label";
-            ComboHotkey.SelectedIndex = 0;
+            _currentHotkey = hotkey;
+            _keyboardHook.HotkeyVirtualCode  = hotkey.VirtualCode;
+            _keyboardHook.ModifierVirtualCode = hotkey.ModifierCode;
+            _keyboardHook.SwallowHotkey       = hotkey.Swallow;
+            BtnHotkey.Content = hotkey.Label;
+
+            TxtHotkeyWarning.Visibility = IsPartialTypingAllowed()
+                ? System.Windows.Visibility.Collapsed
+                : System.Windows.Visibility.Visible;
+        }
+
+        private void BtnHotkey_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new HotkeyRecorderDialog(_currentHotkey) { Owner = this };
+            if (dlg.ShowDialog() == true && dlg.Result is HotkeyConfig hotkey)
+            {
+                ApplyHotkey(hotkey);
+                LogMessage($"Hotkey changed to: {hotkey.Label}");
+                if (_controller?.LoadState == ModelLoadState.Loaded)
+                    TxtSubStatus.Text = $"Hold {hotkey.Label} to start typing speech";
+                SaveSettings();
+            }
         }
 
         private void ScanForModels()
@@ -437,8 +447,7 @@ namespace WhisperTyper
                         string adapterText = _controller.LoadedAdapter;
                         TxtStatus.Text = isCpu ? "Ready (CPU Mode)" : $"Ready ({adapterText})";
 
-                        string hotkeyLabel = (ComboHotkey.SelectedItem as HotkeyOption)?.Label ?? "hotkey";
-                        TxtSubStatus.Text = $"Hold {hotkeyLabel} to start typing speech";
+                        TxtSubStatus.Text = $"Hold {_currentHotkey.Label} to start typing speech";
                         if (logMessage) LogMessage($"Model loaded successfully on {(isCpu ? "CPU (Reference fallback)" : adapterText)}.");
                         RefreshModelList();
                         break;
@@ -540,7 +549,7 @@ namespace WhisperTyper
                     _controller.ApplyProfile(profile, defaultLang, ChkTranslate.IsChecked == true, ChkFillerEnabled.IsChecked == true);
                     
                     // Capture LLM settings for this recording session
-                    _activeSessionLlm = profile?.PostProcessing ?? _postProcessing;
+                    _activeSessionLlm = profile?.PostProcessing?.Resolve(_postProcessing) ?? _postProcessing;
 
                     if (ComboMic.SelectedItem is CaptureDeviceId mic)
                     {
@@ -696,14 +705,7 @@ namespace WhisperTyper
                 // Restore Post-Processing
                 if (profile.PostProcessing != null)
                 {
-                    _postProcessing = new PostProcessingSettings
-                    {
-                        Enabled = profile.PostProcessing.Enabled,
-                        Provider = profile.PostProcessing.Provider,
-                        Endpoint = profile.PostProcessing.Endpoint,
-                        Model = profile.PostProcessing.Model,
-                        Prompt = profile.PostProcessing.Prompt
-                    };
+                    _postProcessing = profile.PostProcessing.Clone();
                     UpdateLlmStatusUI();
                 }
 
@@ -790,10 +792,7 @@ namespace WhisperTyper
 
                     // Restore sub-status if it was changed
                     if (llmSettings.Enabled)
-                    {
-                        var opt = ComboHotkey.SelectedItem as HotkeyOption;
-                        TxtSubStatus.Text = $"Hold {opt?.Label ?? "hotkey"} to start typing speech";
-                    }
+                        TxtSubStatus.Text = $"Hold {_currentHotkey.Label} to start typing speech";
                 });
             });
         }
@@ -816,25 +815,6 @@ namespace WhisperTyper
                            or 0x12 or 0xA4 or 0xA5   // Alt variants
                            or 0x10 or 0xA0 or 0xA1   // Shift variants
                            or 0x5B or 0x5C);          // Win L/R
-        }
-
-        private void ComboHotkey_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (ComboHotkey.SelectedItem is HotkeyOption opt)
-            {
-                _keyboardHook.HotkeyVirtualCode  = opt.KeyCode;
-                _keyboardHook.ModifierVirtualCode = opt.ModifierCode;
-                _keyboardHook.SwallowHotkey       = opt.Swallow;
-
-                LogMessage($"Hotkey changed to: {opt.Label}");
-
-                TxtHotkeyWarning.Visibility = IsPartialTypingAllowed()
-                    ? System.Windows.Visibility.Collapsed
-                    : System.Windows.Visibility.Visible;
-
-                if (_controller?.LoadState == ModelLoadState.Loaded)
-                    TxtSubStatus.Text = $"Hold {opt.Label} to start typing speech";
-            }
         }
 
         private void ConfigChanged_TriggerEagerLoad(object sender, SelectionChangedEventArgs e)

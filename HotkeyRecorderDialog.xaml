@@ -1,0 +1,101 @@
+<Window x:Class="WhisperTyper.HotkeyRecorderDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Set Hotkey" Height="280" Width="420"
+        WindowStartupLocation="CenterOwner"
+        Background="#0E0B16" Foreground="#F3F0FC"
+        FontFamily="Segoe UI"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewMouseDown="Window_PreviewMouseDown">
+
+    <Window.Resources>
+        <Style x:Key="ModernButton" TargetType="Button">
+            <Setter Property="Background" Value="#8B5CF6"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="15,5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                BorderThickness="0" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#A78BFA"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#7C3AED"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Background" Value="#2D283E"/>
+                                <Setter Property="Foreground" Value="#6E6A7A"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource ModernButton}">
+            <Setter Property="Background" Value="#2D283E"/>
+            <Setter Property="Foreground" Value="#F3F0FC"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                BorderBrush="#3B2A66" BorderThickness="1" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#3B2A66"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#2A1E4A"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Press a key or combination to use as your hold-to-record hotkey:"
+                   FontSize="12" Foreground="#9E9AA8" TextWrapping="Wrap" Margin="0,0,0,14"/>
+
+        <Border Grid.Row="1" Background="#161127" BorderBrush="#3B2A66" BorderThickness="1" CornerRadius="8"
+                HorizontalAlignment="Stretch" Height="64">
+            <TextBlock x:Name="TxtCaptured" Text="…" FontSize="22" FontWeight="Bold"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#8B5CF6"/>
+        </Border>
+
+        <TextBlock Grid.Row="2" x:Name="TxtHint"
+                   Text="Tip: hold Ctrl or Alt before pressing a key for combinations. Mouse buttons 3, 4 and 5 are also supported."
+                   FontSize="10" Foreground="#6B6878" TextWrapping="Wrap" Margin="0,8,0,14"/>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="BtnCancel" Content="Cancel" Width="80" Margin="0,0,8,0"
+                    Click="BtnCancel_Click" Style="{StaticResource SecondaryButton}"/>
+            <Button x:Name="BtnOk" Content="OK" Width="80" IsEnabled="False"
+                    Click="BtnOk_Click" Style="{StaticResource ModernButton}"/>
+        </StackPanel>
+    </Grid>
+</Window>

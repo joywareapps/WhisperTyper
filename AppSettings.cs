@@ -1,12 +1,10 @@
-using Whisper;
-
 namespace WhisperTyper
 {
     public record AppSettings(
         string ModelPath = "",
         string GpuAdapter = "",
         string Language = "Auto-Detect",
-        int HotkeyIndex = 0,
+        HotkeyConfig? Hotkey = null,
         bool FillerWordRemovalEnabled = true,
         string[]? FillerWords = null,
         string ModelsDirectory = "",
