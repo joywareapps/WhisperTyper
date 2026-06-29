@@ -519,7 +519,7 @@ namespace WhisperTyper
 
         private void OnHotkeyStateChanged(bool isPressed)
         {
-            Dispatcher.Invoke(() =>
+            Dispatcher.BeginInvoke(() =>
             {
                 if (isPressed)
                 {
