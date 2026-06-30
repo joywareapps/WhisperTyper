@@ -4,7 +4,7 @@ Hold a hotkey, speak, release — your words appear at the cursor. Local, privat
 
 WhisperTyper runs [OpenAI Whisper](https://github.com/openai/whisper) entirely on your machine using [Const-me's DirectCompute implementation](https://github.com/Const-me/Whisper), with no cloud, no subscription, and no data leaving your PC. It supports NVIDIA, AMD, and Intel GPUs out of the box via DirectCompute (Direct3D 11).
 
-![WhisperTyper screenshot](docs/screenshot.png)
+![WhisperTyper screenshot](docs/Screenshot.png)
 
 ## Features
 
